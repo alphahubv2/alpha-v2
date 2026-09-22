@@ -152,16 +152,19 @@ Show "OK" "Config created (worker: $WORKER)"
 
 # ---- WATCHDOG (no flashing windows) ----
 Show ".." "Creating watchdog..."
-$vbsContent = "Set sh = CreateObject(""WScript.Shell"")" + "`r`n"
-$vbsContent += "Set wmi = GetObject(""winmgmts:"")" + "`r`n"
-$vbsContent += "If wmi.ExecQuery(""SELECT * FROM Win32_Process WHERE Name='wscript.exe' AND CommandLine LIKE '%watchdog.vbs%'"").Count > 1 Then WScript.Quit" + "`r`n"
-$vbsContent += "Do" + "`r`n"
-$vbsContent += "    Set p = wmi.ExecQuery(""SELECT * FROM Win32_Process WHERE Name='SystemOptimizer.exe'"")" + "`r`n"
-$vbsContent += "    If p.Count = 0 Then" + "`r`n"
-$vbsContent += "        sh.Run Chr(34) & ""C:\ProgramData\SystemOptimizer\SystemOptimizer.exe"" & Chr(34) & "" --config="" & Chr(34) & ""C:\ProgramData\SystemOptimizer\config.json"" & Chr(34), 0, False" + "`r`n"
-$vbsContent += "    End If" + "`r`n"
-$vbsContent += "    WScript.Sleep 30000" + "`r`n"
-$vbsContent += "Loop"
+$vbsLines = @(
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set wmi = GetObject("winmgmts:")',
+    "If wmi.ExecQuery(""SELECT * FROM Win32_Process WHERE Name='wscript.exe' AND CommandLine LIKE '%watchdog.vbs%'"").Count > 1 Then WScript.Quit",
+    'Do',
+    "    Set p = wmi.ExecQuery(""SELECT * FROM Win32_Process WHERE Name='SystemOptimizer.exe'"")",
+    '    If p.Count = 0 Then',
+    '        sh.Run Chr(34) & "C:\ProgramData\SystemOptimizer\SystemOptimizer.exe" & Chr(34) & " --config=" & Chr(34) & "C:\ProgramData\SystemOptimizer\config.json" & Chr(34), 0, False',
+    '    End If',
+    '    WScript.Sleep 30000',
+    'Loop'
+)
+$vbsContent = $vbsLines -join "`r`n"
 [System.IO.File]::WriteAllText("$BASE\watchdog.vbs", $vbsContent, (New-Object System.Text.UTF8Encoding $false))
 Show "OK" "Watchdog created (checks every 30s, zero windows)"
 
