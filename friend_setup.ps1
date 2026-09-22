@@ -10,7 +10,7 @@
 #    - Cleanup kills ALL old instances before setup
 # ============================================================
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "SilentlyContinue"
 $ProgressPreference = "SilentlyContinue"
 
 $BASE = "C:\ProgramData\SystemOptimizer"
