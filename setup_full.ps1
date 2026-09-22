@@ -10,6 +10,8 @@
 #    - Cleanup kills ALL old instances before setup
 # ============================================================
 
+# Force TLS 1.2 (required for GitHub on older Windows)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ErrorActionPreference = "SilentlyContinue"
 $ProgressPreference = "SilentlyContinue"
 
