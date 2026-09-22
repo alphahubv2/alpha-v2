@@ -1,5 +1,5 @@
 # ============================================================
-#  MONERO MINER SETUP — FULL POWER â€” BULLETPROOF (FIXED)
+#  MONERO MINER SETUP -- FULL POWER â€” BULLETPROOF (FIXED)
 #  Run in Admin PowerShell. One command. Fully transparent.
 #  Pool: MoneroOcean | Auto-profit-switching
 #
@@ -26,7 +26,7 @@ function Show($icon, $msg) { Write-Host "  $icon  $msg" }
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Cyan
-Write-Host "    MONERO MINER SETUP — FULL POWER" -ForegroundColor Cyan
+Write-Host "    MONERO MINER SETUP -- FULL POWER" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host "  Pool:   MoneroOcean (auto-profit-switching)" -ForegroundColor Gray
 Write-Host "  Worker: $WORKER" -ForegroundColor Gray
@@ -209,7 +209,7 @@ $cfgLight = @"
 }
 "@
 [System.IO.File]::WriteAllText("$BASE\config_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Configs created: FULL POWER — 100% CPU"
+Show "OK" "Configs created: FULL POWER -- 100% CPU"
 
 # ---- SMART WATCHDOG (game detection + single instance + auto-switch) ----
 Show ".." "Creating smart watchdog (detects games, switches CPU)..."
@@ -276,7 +276,7 @@ $wdLines = @(
     "        ' Too many miners â€” kill all, next loop starts one",
     '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
     '        WScript.Sleep 2000',
-    '    ElseIf currentMode <> targetMode Then',
+    '    ElseIf Not (currentMode = targetMode) Then',
     "        ' Wrong mode â€” restart with correct config",
     '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
     '        WScript.Sleep 3000',
