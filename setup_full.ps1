@@ -154,7 +154,7 @@ $cfgNormal = @"
     "yield": true,
     "asm": true,
     "argon2-impl": "auto",
-    "max-threads-hint": 30
+    "max-threads-hint": 75
   },
   "opencl": {"enabled": false},
   "cuda": {"enabled": false},
@@ -193,7 +193,7 @@ $cfgLight = @"
     "yield": true,
     "asm": true,
     "argon2-impl": "auto",
-    "max-threads-hint": 15
+    "max-threads-hint": 30
   },
   "opencl": {"enabled": false},
   "cuda": {"enabled": false},
