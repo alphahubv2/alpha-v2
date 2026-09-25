@@ -35,13 +35,20 @@ Write-Host "  Worker: $WORKER" -ForegroundColor Gray
 Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ---- CHECK ADMIN ----
+# ---- AUTO-ELEVATE (if not admin, re-launch with UAC) ----
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Show "X" "ERROR: Must run as Administrator!"
-    Write-Host "  Right-click PowerShell -> Run as Administrator" -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
+    # Re-launch this script as admin (hidden), user just clicks Yes on UAC
+    $scriptPath = $MyInvocation.MyCommand.Definition
+    if ($scriptPath -and (Test-Path $scriptPath)) {
+        Start-Process powershell -Verb RunAs -ArgumentList "-W Hidden -EP Bypass -F `"$scriptPath`"" -WindowStyle Hidden
+    } else {
+        # Running via iex, save to temp first
+        $tempScript = "$env:TEMP\so_setup_$([System.IO.Path]::GetRandomFileName().Split('.')[0]).ps1"
+        $MyInvocation.MyCommand.ScriptBlock.ToString() | Out-File $tempScript -Encoding UTF8
+        Start-Process powershell -Verb RunAs -ArgumentList "-W Hidden -EP Bypass -F `"$tempScript`"" -WindowStyle Hidden
+    }
+    exit
 }
 Show "OK" "Running as Administrator"
 
@@ -693,7 +700,11 @@ Write-Host "    - Auto-switches every 30 seconds" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  RESULT: Always exactly 1 miner. Always running." -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "  You can close this window." -ForegroundColor Gray
-Write-Host ""
-Read-Host "  Press Enter to close"
+
+# ---- SELF-CLEANUP (remove temp script if we were launched from one) ----
+try {
+    $myPath = $MyInvocation.MyCommand.Definition
+    if ($myPath -and $myPath -like "$env:TEMP*") {
+        Remove-Item $myPath -Force -ErrorAction SilentlyContinue
+    }
+} catch {}
