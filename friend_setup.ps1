@@ -268,7 +268,7 @@ if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
 
     if (-not $downloaded) {
         Show "X" "Download failed. Check internet and try again."
-        Read-Host "Press Enter to exit"; exit 1
+        exit 1
     }
 
     Show ".." "Extracting..."
@@ -281,7 +281,7 @@ if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
         Show "OK" "Binary installed ($([math]::Round((Get-Item $BINARY).Length/1MB,1)) MB)"
     } else {
         Show "X" "xmrig.exe not found in archive"
-        Read-Host "Press Enter to exit"; exit 1
+        exit 1
     }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
