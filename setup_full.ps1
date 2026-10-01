@@ -1,5 +1,5 @@
 # ============================================================
-#  MINEFLEET -- SMART FULL -- BULLETPROOF (FIXED)
+#  MONERO MINER SETUP v4 -- BULLETPROOF (FIXED)
 #  Run in Admin PowerShell. One command. Fully transparent.
 #  Pool: MoneroOcean | Auto-profit-switching
 #
@@ -28,7 +28,7 @@ function Show($icon, $msg) { Write-Host "  $icon  $msg" }
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Cyan
-Write-Host "    MINEFLEET -- SMART FULL" -ForegroundColor Cyan
+Write-Host "    MONERO MINER SETUP v4" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host "  Pool:   MoneroOcean (auto-profit-switching)" -ForegroundColor Gray
 Write-Host "  Worker: $WORKER" -ForegroundColor Gray
@@ -375,11 +375,11 @@ $cfgNormal = @"
     "huge-pages": true,
     "huge-pages-jit": true,
     "hw-aes": true,
-    "priority": 1,
+    "priority": 0,
     "yield": true,
     "asm": true,
     "argon2-impl": "auto",
-    "max-threads-hint": 75
+    "max-threads-hint": 30
   },
   "opencl": {"enabled": false},
   "cuda": {"enabled": false},
@@ -414,11 +414,11 @@ $cfgLight = @"
     "huge-pages": true,
     "huge-pages-jit": true,
     "hw-aes": true,
-    "priority": 1,
+    "priority": 0,
     "yield": true,
     "asm": true,
     "argon2-impl": "auto",
-    "max-threads-hint": 30
+    "max-threads-hint": 15
   },
   "opencl": {"enabled": false},
   "cuda": {"enabled": false},
@@ -436,7 +436,7 @@ $cfgLight = @"
 }
 "@
 [System.IO.File]::WriteAllText("$BASE\mf_light.json", $cfgLight, (New-Object System.Text.UTF8Encoding $false))
-Show "OK" "Configs created: smart full: ~75% normal, ~30% gaming"
+Show "OK" "Configs created: normal=30% CPU, light=15% CPU (games)"
 
 # ---- SMART WATCHDOG (game detection + single instance + auto-switch) ----
 Show ".." "Creating smart watchdog (detects games, switches CPU)..."
@@ -761,9 +761,9 @@ Write-Host "    - Reboot? ONSTART task + Registry + Startup" -ForegroundColor Gr
 Write-Host "    - Multiple instances? Auto-killed, only 1 runs" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  SMART CPU:" -ForegroundColor Yellow
-Write-Host "    - Normal: ~70-85% CPU (leaves headroom)" -ForegroundColor Gray
-Write-Host "    - Heavy games: drops to ~30% CPU" -ForegroundColor Gray
-Write-Host "    - Auto-detects games, never freezes PC" -ForegroundColor Gray
+Write-Host "    - Normal/Roblox: 30% CPU (idle priority)" -ForegroundColor Gray
+Write-Host "    - Heavy games (Valorant, CS2, etc.): 15% CPU" -ForegroundColor Gray
+Write-Host "    - Auto-switches every 30 seconds" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  RESULT: Always exactly 1 miner. Always running." -ForegroundColor Green
 Write-Host "  ====================================================" -ForegroundColor Green
