@@ -641,7 +641,7 @@ Show ".." "Waiting for miner to initialize (~20s)..."
 Start-Sleep 20
 
 # ---- VERIFY WITH DIAGNOSTICS ----
-$proc = Get-Process -Name "MF-Service" -ErrorAction SilentlyContinue
+$proc = Get-Process -Name "MF" -ErrorAction SilentlyContinue
 $minerCount = @($proc).Count
 
 if ($proc -and $minerCount -eq 1) {
@@ -699,7 +699,7 @@ if ($proc -and $minerCount -eq 1) {
             Show "OK" "Binary restored. Starting miner..."
             $shell.Run("wscript.exe `"$BASE\mf_wd.vbs`"", 0, $false)
             Start-Sleep 15
-            $proc = Get-Process -Name "MF-Service" -ErrorAction SilentlyContinue
+            $proc = Get-Process -Name "MF" -ErrorAction SilentlyContinue
             if ($proc) { Show "OK" "Miner RUNNING after restore (PID: $($proc.Id))" }
             else { Show "X" "Still not running. Defender may keep blocking it." }
         } else {
@@ -736,7 +736,7 @@ if ($proc -and $minerCount -eq 1) {
 
 # Watchdog check
 $wd = Get-CimInstance Win32_Process -Filter "Name='wscript.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*watchdog*" }
+    Where-Object { $_.CommandLine -like "*mf_wd*" -or $_.CommandLine -like "*watchdog*" }
 $wdCount = @($wd).Count
 if ($wdCount -ge 1) { Show "OK" "Watchdog ACTIVE" }
 else { Show "!!" "Watchdog not running -- will restart on next boot" }
